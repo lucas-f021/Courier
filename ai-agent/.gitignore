@@ -1,0 +1,9 @@
+credentials.json
+token.json
+.env
+base64.dll
+base64.so
+__pycache__/
+*.pyc
+.DS_Store
+
