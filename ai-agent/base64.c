@@ -35,7 +35,7 @@ void b64_decode(const char *in, unsigned char *out, size_t *out_len) {
         in += 4; // first 4 chars completed
     }
 };
-// TEST CASES
+// IGNORE TEST CASES
 #ifdef TEST
 int main(void) {
     unsigned char out[64]; // max 64 bytes just for testing
