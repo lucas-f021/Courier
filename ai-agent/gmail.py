@@ -34,7 +34,7 @@ def decode_base64_urlsafe(encoded: str) -> str:
     return out_buf.raw[:out_len.value].decode('utf-8', errors='replace')
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
-xw
+
 def get_gmail_service():
     creds = None
     if os.path.exists('token.json'):
