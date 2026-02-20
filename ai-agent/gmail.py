@@ -26,7 +26,6 @@ _b64lib.b64_decode.argtypes = [
 
 _b64lib.b64_decode.restype = None
 
-# translates our c code into python terms
 def decode_base64_urlsafe(encoded: str) -> str:
     encoded_bytes = encoded.encode('ascii')
     out_buf = ctypes.create_string_buffer(len(encoded_bytes))
@@ -35,8 +34,7 @@ def decode_base64_urlsafe(encoded: str) -> str:
     return out_buf.raw[:out_len.value].decode('utf-8', errors='replace')
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
-
-#connects user to gmail
+xw
 def get_gmail_service():
     creds = None
     if os.path.exists('token.json'):
