@@ -33,7 +33,13 @@ def decode_base64_urlsafe(encoded: str) -> str:
     _b64lib.b64_decode(encoded_bytes, out_buf, ctypes.byref(out_len))
     return out_buf.raw[:out_len.value].decode('utf-8', errors='replace')
 
-SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+SCOPES = [
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/documents.readonly',
+]
+
 
 def get_gmail_service():
     creds = None
