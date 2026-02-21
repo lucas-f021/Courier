@@ -30,6 +30,38 @@ def get_drive_service():
     return build('drive', 'v3', credentials=creds)
 
 
+def get_docs_service():
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('token.json', 'w') as f:
+            f.write(creds.to_json())
+    return build('docs', 'v1', credentials=creds)
+
+
+def read_doc_content(service, doc_id):
+    try:
+        doc = service.documents().get(documentId=doc_id).execute()
+        text_parts = []
+        for item in doc.get('body', {}).get('content', []):
+            if 'paragraph' in item:
+                for element in item['paragraph'].get('elements', []):
+                    if 'textRun' in element:
+                        text_parts.append(element['textRun']['content'])
+        text = ''.join(text_parts)
+        log.info(f"doc_read | doc_id={doc_id} | chars={len(text)}")
+        return text
+    except Exception as e:
+        log.error(f"docs_error | doc_id={doc_id} | error={str(e)}")
+        return ""
+
+
 def search_drive_files(service, query, max_results=5):
     try:
         result = service.files().list(

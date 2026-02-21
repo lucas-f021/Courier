@@ -67,10 +67,21 @@ tools = [
             },
             "required": ["query"]
         }
+    },
+    {
+        "name": "read_doc",
+        "description": "Read the full text content of a Google Doc. Use after search_drive finds a document and you need to understand its contents before replying. Pass the full Google Docs URL from the search_drive result.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "doc_url": {"type": "string", "description": "The full Google Docs URL returned by search_drive"}
+            },
+            "required": ["doc_url"]
+        }
     }
 ]
 
-def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None, drive_service=None):
+def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None, drive_service=None, docs_service=None):
     log.info(f"agent_start | from={email['from']} | subject={email['subject']}")
     calendar_context = ""
     if calendar_service is not None:
@@ -108,12 +119,12 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
             for block in response.content:
                 if block.type == "tool_use":
                     log.info(f"tool_called | tool={block.name}")
-                    result = _execute_tool(block.name, block.input, email, gmail_service, slack_client, slack_channel, drive_service)
+                    result = _execute_tool(block.name, block.input, email, gmail_service, slack_client, slack_channel, drive_service, docs_service)
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_results})
 
-def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None):
+def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None, docs_service=None):
     from gmail import send_reply
     if name == "draft_reply":
         send_reply(gmail_service, inputs['to'], inputs['subject'], inputs['body'], draft_mode=True)
@@ -134,6 +145,21 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
         lines = [f"- {f['name']}: {f['link']}" for f in files]
         log.info(f"tool_called | tool=search_drive | query={inputs['query']} | results={len(files)}")
         return "\n".join(lines)
+
+    if name == "read_doc":
+        if docs_service is None:
+            return "Docs not available"
+        import re
+        from drive_client import read_doc_content
+        url = inputs['doc_url']
+        match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+        if not match:
+            return "Could not extract document ID from URL"
+        doc_id = match.group(1)
+        content = read_doc_content(docs_service, doc_id)
+        if not content:
+            return "Document is empty or could not be read"
+        return content[:3000]
 
     log.warning(f"unknown_tool | tool={name}")
     return f"Unknown tool: {name}"
