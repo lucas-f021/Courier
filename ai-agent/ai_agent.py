@@ -81,7 +81,7 @@ tools = [
     }
 ]
 
-def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None, drive_service=None, docs_service=None):
+def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None, drive_service=None, docs_service=None, meet_service=None):
     log.info(f"agent_start | from={email['from']} | subject={email['subject']}")
     calendar_context = ""
     if calendar_service is not None:
@@ -94,10 +94,22 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
                 lines.append(f"- {e['summary']} at {e['start']} ({attendees})")
             calendar_context = "\n".join(lines) + "\n\n"
 
+    meet_context = ""
+    if meet_service is not None:
+        from meet_client import get_recent_transcripts
+        transcripts = get_recent_transcripts(meet_service, max_results=3)
+        if transcripts:
+            lines = ["[MEET CONTEXT — recent meeting transcripts]"]
+            for t in transcripts:
+                lines.append(f"Meeting {t['meeting_id']}:")
+                lines.append(t['transcript'][:1000])
+            meet_context = "\n".join(lines) + "\n\n"
+
     messages = [{
         "role": "user",
         "content": (
             f"{calendar_context}"
+            f"{meet_context}"
             f"From: {email['from']}\nSubject: {email['subject']}\n\n"
             f"[BEGIN UNTRUSTED EMAIL CONTENT]\n{email['body'][:2000]}\n[END UNTRUSTED EMAIL CONTENT]\n\n"
             f"Handle this email."
