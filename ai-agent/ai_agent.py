@@ -110,12 +110,24 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
             messages=messages
         )
         if response.stop_reason == "end_turn":
+            from slack_client import reply_in_thread
+            for block in response.content:
+                if hasattr(block, 'text') and block.text:
+                    reply_in_thread(slack_client, channel, thread_ts, block.text)
+            log.info(f"slack_agent_done | channel={channel}")
             break
         if response.stop_reason == "tool_use":
+            from slack_client import reply_in_thread
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    result = _execute_tool(block.name, block.input, email, gmail_service, slack_client, slack_channel)
+                    if block.name == "post_to_slack":
+                        reply_in_thread(slack_client, channel, thread_ts, block.input['message'])
+                        result = "Reply sent"
+                    else:
+                        result = f"Unknown tool: {block.name}"
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_results})
+        else:
+            break
