@@ -13,6 +13,7 @@ from ai_agent import run_agent, run_slack_agent
 from calendar_client import get_calendar_service
 from drive_client import get_drive_service, get_docs_service
 from meet_client import get_meet_service
+from delta_logger import DeltaLakeHandler
 
 
 logging.basicConfig(
@@ -20,6 +21,10 @@ logging.basicConfig(
     format='%(asctime)s | %(name)s | %(levelname)s | %(message)s'
 )
 log = logging.getLogger(__name__)
+
+_delta_handler = DeltaLakeHandler()
+_delta_handler.setFormatter(logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s'))
+logging.getLogger().addHandler(_delta_handler)
 
 DB_PATH = "processed_emails.db"
 

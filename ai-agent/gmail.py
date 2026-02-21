@@ -71,6 +71,8 @@ def get_recent_emails(service, max_results = 5):
                 if part['mimeType'] == 'text/plain' and 'data' in part.get('body', {}):
                     body = decode_base64_urlsafe(part['body']['data'])
                     break
+        elif 'data' in msg_data['payload'].get('body', {}):
+            body = decode_base64_urlsafe(msg_data['payload']['body']['data'])
         if not body:
             log.warning(f"email_skipped | reason=body_empty | id={msg['id']}")
         else:

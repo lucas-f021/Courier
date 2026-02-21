@@ -7,3 +7,4 @@ __pycache__/
 *.pyc
 .DS_Store
 processed_emails.db
+send_test_emails.py
