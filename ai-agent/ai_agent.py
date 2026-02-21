@@ -59,12 +59,26 @@ tools = [
     }
 ]
 
-def run_agent(email, gmail_service, slack_client, slack_channel):
-   
-    messages = [{
-    "role": "user",
-    "content": f"From: {email['from']}\nSubject: {email['subject']}\n\n[BEGIN UNTRUSTED EMAIL CONTENT]\n{email['body'][:2000]}\n[END UNTRUSTED EMAIL CONTENT]\n\nHandle this email."
+def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None):
+    calendar_context = ""
+    if calendar_service is not None:
+        from calendar_client import get_upcoming_events
+        events = get_upcoming_events(calendar_service, max_results=10)
+        if events:
+            lines = ["[CALENDAR CONTEXT — your upcoming events]"]
+            for e in events:
+                attendees = ", ".join(e['attendees']) if e['attendees'] else "no attendees"
+                lines.append(f"- {e['summary']} at {e['start']} ({attendees})")
+            calendar_context = "\n".join(lines) + "\n\n"
 
+    messages = [{
+        "role": "user",
+        "content": (
+            f"{calendar_context}"
+            f"From: {email['from']}\nSubject: {email['subject']}\n\n"
+            f"[BEGIN UNTRUSTED EMAIL CONTENT]\n{email['body'][:2000]}\n[END UNTRUSTED EMAIL CONTENT]\n\n"
+            f"Handle this email."
+        )
     }]
     while True:
         response = client.messages.create(
