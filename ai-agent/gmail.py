@@ -70,6 +70,10 @@ def get_recent_emails(service, max_results = 5):
                 if part['mimeType'] == 'text/plain' and 'data' in part.get('body', {}):
                     body = decode_base64_urlsafe(part['body']['data'])
                     break
+        if not body:
+            log.warning(f"email_skipped | reason=body_empty | id={msg['id']}")
+        else:
+            log.info(f"email_fetched | from={frm} | subject={subject}")
         emails.append({'id': msg['id'], 'subject': subject, 'from': frm, 'body': body})
     return emails
 
@@ -86,6 +90,9 @@ def send_reply(service, to, subject, body, draft_mode=True):
         ans = input()
         if ans.lower() == 'y':
             service.users().messages().send(userId='me', body={'raw': raw}).execute()
+            log.info(f"email_sent | to={to} | subject={subject}")
+        else:
+            log.info(f"email_cancelled | to={to}")
 
 
 
