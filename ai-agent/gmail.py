@@ -63,8 +63,8 @@ def get_recent_emails(service, max_results = 5):
     for msg in messages:
         msg_data = service.users().messages().get(userId='me', id=msg['id'], format='full').execute()
         headers = msg_data['payload']['headers']
-        subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
-        frm = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown')
+        subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject')
+        frm = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown')
         body = ''
         if 'parts' in msg_data['payload']:
             for part in msg_data['payload']['parts']:

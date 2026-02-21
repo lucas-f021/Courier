@@ -50,5 +50,7 @@ class DeltaLakeHandler(logging.Handler):
                     '{msg}'
                 )
             """)
+        except KeyboardInterrupt:
+            raise
         except Exception:
             self.handleError(record)

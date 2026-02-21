@@ -83,6 +83,17 @@ tools = [
 
 def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None, drive_service=None, docs_service=None, meet_service=None):
     log.info(f"agent_start | from={email['from']} | subject={email['subject']}")
+
+    from vector_memory import retrieve_similar_emails, store_email_embedding
+    query = f"{email['subject']} {email['body'][:300]}"
+    similar = retrieve_similar_emails(query)
+    memory_context = ""
+    if similar:
+        lines = ["[MEMORY CONTEXT — similar past emails]"]
+        for m in similar:
+            lines.append(f"- {m.get('summary', '')}")
+        memory_context = "\n".join(lines) + "\n\n"
+
     calendar_context = ""
     if calendar_service is not None:
         from calendar_client import get_upcoming_events
@@ -108,6 +119,7 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
     messages = [{
         "role": "user",
         "content": (
+            f"{memory_context}"
             f"{calendar_context}"
             f"{meet_context}"
             f"From: {email['from']}\nSubject: {email['subject']}\n\n"
@@ -125,6 +137,7 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
         )
         if response.stop_reason == "end_turn":
             log.info(f"agent_done | from={email['from']}")
+            store_email_embedding(email)
             break
         if response.stop_reason == "tool_use":
             tool_results = []
