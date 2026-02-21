@@ -6,4 +6,4 @@ base64.so
 __pycache__/
 *.pyc
 .DS_Store
-
+processed_emails.db
