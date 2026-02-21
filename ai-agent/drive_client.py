@@ -1,0 +1,51 @@
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+import logging
+import os
+
+log = logging.getLogger(__name__)
+
+SCOPES = [
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/documents.readonly',
+]
+
+
+def get_drive_service():
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('token.json', 'w') as f:
+            f.write(creds.to_json())
+    return build('drive', 'v3', credentials=creds)
+
+
+def search_drive_files(service, query, max_results=5):
+    try:
+        result = service.files().list(
+            q=f"name contains '{query}' and trashed = false",
+            pageSize=max_results,
+            fields="files(id, name, webViewLink, mimeType)"
+        ).execute()
+        files = []
+        for f in result.get('files', []):
+            files.append({
+                'name': f.get('name'),
+                'link': f.get('webViewLink', 'No link available'),
+                'type': f.get('mimeType', '')
+            })
+        log.info(f"drive_search | query={query} | count={len(files)}")
+        return files
+    except Exception as e:
+        log.error(f"drive_error | error={str(e)}")
+        return []

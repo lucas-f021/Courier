@@ -27,7 +27,7 @@ Guidelines:
   say so explicitly in your reasoning rather than guessing
 - Never take an action you are not confident about — when in doubt, draft and flag for review
 - Always prefer doing less and confirming over doing more and being wrong
-- If you drafted a reply, mention it in the Slack message (e.g. "A draft reply has been saved in Gmail Drafts for your review.")
+- If you draft a reply, YOU MUST always follow it with a post_to_slack call. NOTHING is exempt. The Slack message must confirm the draft was saved and who it was sent to.
 
 
 You are an assistant, not an autonomous actor. A human reviews everything before it is sent."""
@@ -56,10 +56,21 @@ tools = [
             },
             "required": ["message"]
         }
+    },
+    {
+        "name": "search_drive",
+        "description": "Search Google Drive for files by name. Use when an email references a document, spreadsheet, or file that may exist in Drive.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The filename or keyword to search for in Google Drive"}
+            },
+            "required": ["query"]
+        }
     }
 ]
 
-def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None):
+def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None, drive_service=None):
     calendar_context = ""
     if calendar_service is not None:
         from calendar_client import get_upcoming_events
@@ -94,22 +105,34 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    result = _execute_tool(block.name, block.input, email, gmail_service, slack_client, slack_channel)
+                    result = _execute_tool(block.name, block.input, email, gmail_service, slack_client, slack_channel, drive_service)
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_results})
 
-def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel):
+def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None):
     from gmail import send_reply
     if name == "draft_reply":
         send_reply(gmail_service, inputs['to'], inputs['subject'], inputs['body'], draft_mode=True)
         return f"Draft saved for {inputs['to']}"
-    
+
     from slack_client import post_message
     if name == "post_to_slack":
         post_message(slack_client, slack_channel, inputs['message'])
-        return "Posted to slack"
-        
+        return "Posted to Slack"
+
+    if name == "search_drive":
+        if drive_service is None:
+            return "Drive not available"
+        from drive_client import search_drive_files
+        files = search_drive_files(drive_service, inputs['query'])
+        if not files:
+            return "No files found"
+        lines = [f"- {f['name']}: {f['link']}" for f in files]
+        log.info(f"tool_called | tool=search_drive | query={inputs['query']} | results={len(files)}")
+        return "\n".join(lines)
+
+    log.warning(f"unknown_tool | tool={name}")
     return f"Unknown tool: {name}"
 
 def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
