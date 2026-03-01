@@ -20,6 +20,8 @@ from integrations.meet_client import get_meet_service
 from agent.vector_memory import prune_memory
 
 import sys
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 _fmt = logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s')
 _root = logging.getLogger()
 _root.setLevel(logging.INFO)
@@ -27,13 +29,13 @@ _stream_handler = logging.StreamHandler(sys.stdout)
 _stream_handler.setFormatter(_fmt)
 _stream_handler.stream = open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False)
 _root.addHandler(_stream_handler)
-_file_handler = logging.FileHandler('agent.log', encoding='utf-8')
+_file_handler = logging.FileHandler(os.path.join(_ROOT, 'agent.log'), encoding='utf-8')
 _file_handler.setFormatter(_fmt)
 _root.addHandler(_file_handler)
 
 log = logging.getLogger(__name__)
 
-DB_PATH = "processed_emails.db"
+DB_PATH = os.path.join(_ROOT, "processed_emails.db")
 
 def _init_db():
     con = sqlite3.connect(DB_PATH)
@@ -59,6 +61,7 @@ def prune_processed(keep_days=30):
     from datetime import datetime, timezone, timedelta
     cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=keep_days)).isoformat()
     con = sqlite3.connect(DB_PATH)
+    con.isolation_level = None
     con.execute("DELETE FROM processed WHERE processed_at < ? OR processed_at IS NULL", (cutoff,))
     con.commit()
     con.execute("VACUUM")

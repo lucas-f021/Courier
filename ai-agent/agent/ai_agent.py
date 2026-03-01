@@ -4,7 +4,13 @@ import logging
 
 log = logging.getLogger(__name__)
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    return _client
 
 system_prompt = """You are a personal productivity agent with access to a growing set of tools.
 
@@ -131,7 +137,7 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
     tool_fired = False
 
     while True:
-        response = client.messages.create(
+        response = _get_client().messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             system=system_prompt,
@@ -152,6 +158,8 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_results})
+        else:
+            break
 
 def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None, docs_service=None, notifier=None):
     from integrations.gmail import send_reply
@@ -200,7 +208,7 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
     log.info(f"slack_agent_start | channel={channel} | is_dm={is_dm}")
     messages = [{"role": "user", "content": f"[SLACK MESSAGE]\n{text}"}]
     while True:
-        response = client.messages.create(
+        response = _get_client().messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             system=system_prompt,
@@ -242,7 +250,7 @@ def run_web_agent(text, conversation_history):
     messages = list(conversation_history)
     reply = ""
     while True:
-        response = client.messages.create(
+        response = _get_client().messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             system=system_prompt,
@@ -253,7 +261,7 @@ def run_web_agent(text, conversation_history):
             for block in response.content:
                 if hasattr(block, 'text') and block.text:
                     reply += block.text
-            conversation_history.append({"role": "assistant", "content": reply})
+            conversation_history.append({"role": "assistant", "content": [{"type": "text", "text": reply}]})
             log.info("web_agent_done")
             break
         if response.stop_reason == "tool_use":

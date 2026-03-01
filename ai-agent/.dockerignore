@@ -1,0 +1,13 @@
+.env
+token.json
+credentials.json
+base64.dll
+base64.so
+b64decode.so
+__pycache__/
+*.pyc
+.DS_Store
+processed_emails.db
+memory.db
+agent.log
+chroma_db/

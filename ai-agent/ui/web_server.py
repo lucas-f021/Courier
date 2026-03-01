@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import logging
 import os
+import threading
 
 log = logging.getLogger(__name__)
 
@@ -8,9 +9,37 @@ app = Flask(__name__)
 
 _conversation_history = []
 _inbox = []
+_inbox_lock = threading.Lock()
 
 def push_to_web(message):
-    _inbox.append(message)
+    with _inbox_lock:
+        _inbox.append(message)
+
+def _get_run_web_agent():
+    from agent.ai_agent import run_web_agent
+    return run_web_agent
+
+@app.route('/')
+def index():
+    return _HTML
+
+@app.route('/inbox')
+def inbox():
+    with _inbox_lock:
+        messages = list(_inbox)
+        _inbox.clear()
+    return jsonify({'messages': messages})
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    data = request.get_json()
+    text = data.get('message', '').strip()
+    if not text:
+        return jsonify({'reply': ''})
+    log.info(f"web_request | msg_len={len(text)}")
+    run_web_agent = _get_run_web_agent()
+    reply = run_web_agent(text, _conversation_history)
+    return jsonify({'reply': reply})
 
 _HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -114,27 +143,5 @@ _HTML = """<!DOCTYPE html>
 
 
 def start_web_server(port=5000):
-    from agent.ai_agent import run_web_agent
-
-    @app.route('/')
-    def index():
-        return _HTML
-
-    @app.route('/inbox')
-    def inbox():
-        messages = list(_inbox)
-        _inbox.clear()
-        return jsonify({'messages': messages})
-
-    @app.route('/chat', methods=['POST'])
-    def chat():
-        data = request.get_json()
-        text = data.get('message', '').strip()
-        if not text:
-            return jsonify({'reply': ''})
-        log.info(f"web_request | msg_len={len(text)}")
-        reply = run_web_agent(text, _conversation_history)
-        return jsonify({'reply': reply})
-
     log.info(f"web_server_start | port={port}")
-    app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)

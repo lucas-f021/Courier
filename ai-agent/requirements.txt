@@ -1,6 +1,7 @@
 google-auth
 google-auth-oauthlib
 google-api-python-client
-slack-sdk
+slack-sdk[socket_mode]
 anthropic
 python-dotenv
+flask

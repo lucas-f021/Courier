@@ -12,20 +12,25 @@ SCOPES = [
     'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/drive.readonly',
     'https://www.googleapis.com/auth/documents.readonly',
+    'https://www.googleapis.com/auth/meetings.space.readonly',
 ]
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_TOKEN = os.path.join(_ROOT, 'token.json')
+_CREDS = os.path.join(_ROOT, 'credentials.json')
 
 
 def get_calendar_service():
     creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if os.path.exists(_TOKEN):
+        creds = Credentials.from_authorized_user_file(_TOKEN, SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(_CREDS, SCOPES)
             creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as f:
+        with open(_TOKEN, 'w') as f:
             f.write(creds.to_json())
     return build('calendar', 'v3', credentials=creds)
 

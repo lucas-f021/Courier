@@ -1,3 +1,5 @@
+import os
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -8,7 +10,7 @@ from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
-_DB_PATH = "memory.db"
+_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'memory.db')
 
 
 def _init_db():
@@ -29,6 +31,7 @@ def store_email_embedding(email, important=False):
     ts = datetime.now(tz=timezone.utc).isoformat()
     try:
         con = sqlite3.connect(_DB_PATH)
+        con.execute("DELETE FROM email_memory WHERE source_id = ?", (email['id'],))
         con.execute(
             "INSERT INTO email_memory(source, source_id, summary, timestamp, important) VALUES (?, ?, ?, ?, ?)",
             ("gmail", email['id'], summary, ts, "1" if important else "0")
@@ -45,6 +48,7 @@ def prune_memory(keep_days=90, important_keep_days=365):
     important_cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=important_keep_days)).isoformat()
     try:
         con = sqlite3.connect(_DB_PATH)
+        con.isolation_level = None
         con.execute(
             "DELETE FROM email_memory WHERE important = '0' AND timestamp < ?",
             (cutoff,)
@@ -64,8 +68,10 @@ def prune_memory(keep_days=90, important_keep_days=365):
 
 def retrieve_similar_emails(query_text, max_results=3):
     try:
-        # FTS5 treats special chars as operators — strip them before querying
+        # FTS5 treats special chars and reserved words as operators — sanitize before querying
         safe_query = re.sub(r'[^\w\s]', ' ', query_text).strip()
+        _FTS5_RESERVED = {'or', 'and', 'not'}
+        safe_query = ' '.join(w for w in safe_query.split() if w.lower() not in _FTS5_RESERVED)
         if not safe_query:
             return []
         con = sqlite3.connect(_DB_PATH)
