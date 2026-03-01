@@ -1,6 +1,10 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+# --- User config ---
+USE_WEB_UI = True  # Set to True to use browser chat instead of Slack
+# -------------------
+
 import os
 import time
 import sqlite3
@@ -79,11 +83,17 @@ def main():
     meet = get_meet_service()
     channel = os.getenv("SLACK_CHANNEL_ID")
 
-    def agent_callback(text, channel, thread_ts, is_dm):
-        run_slack_agent(text, channel, thread_ts, is_dm, slack)
-
-    listener_thread = threading.Thread(target=start_listener, args=(slack, agent_callback), daemon=True)
-    listener_thread.start()
+    if USE_WEB_UI:
+        from web_server import start_web_server
+        web_thread = threading.Thread(target=start_web_server, daemon=True)
+        web_thread.start()
+        log.info("ui_mode | mode=web | url=http://127.0.0.1:5000")
+    else:
+        def agent_callback(text, channel, thread_ts, is_dm):
+            run_slack_agent(text, channel, thread_ts, is_dm, slack)
+        listener_thread = threading.Thread(target=start_listener, args=(slack, agent_callback), daemon=True)
+        listener_thread.start()
+        log.info("ui_mode | mode=slack")
 
     try:
         while True:

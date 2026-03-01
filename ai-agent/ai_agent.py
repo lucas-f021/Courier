@@ -232,3 +232,38 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
             messages.append({"role": "user", "content": tool_results})
         else:
             break
+
+def run_web_agent(text, conversation_history):
+    log.info(f"web_agent_start | msg_len={len(text)}")
+    conversation_history.append({"role": "user", "content": f"[WEB MESSAGE]\n{text}"})
+    messages = list(conversation_history)
+    reply = ""
+    while True:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            system=system_prompt,
+            tools=tools,
+            messages=messages
+        )
+        if response.stop_reason == "end_turn":
+            for block in response.content:
+                if hasattr(block, 'text') and block.text:
+                    reply += block.text
+            conversation_history.append({"role": "assistant", "content": reply})
+            log.info("web_agent_done")
+            break
+        if response.stop_reason == "tool_use":
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    if block.name == "post_to_slack":
+                        result = "Slack not available in web mode"
+                    else:
+                        result = f"Unknown tool: {block.name}"
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            break
+    return reply
