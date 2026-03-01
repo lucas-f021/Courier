@@ -2,7 +2,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- User config ---
-USE_WEB_UI = True  # Set to True to use browser chat instead of Slack
+USE_WEB_UI = True       # Set to True to use browser chat instead of Slack
+USE_LOCAL_MODEL = True  # Set to True to use Ollama instead of Anthropic API
 # -------------------
 
 import os
@@ -13,7 +14,7 @@ import threading
 from integrations.gmail import get_gmail_service, get_recent_emails
 from integrations.slack_client import get_slack_client
 from integrations.slack_listener import start_listener
-from agent.ai_agent import run_agent, run_slack_agent
+from agent.ai_agent import run_agent, run_slack_agent, set_backend
 from integrations.calendar_client import get_calendar_service
 from integrations.drive_client import get_drive_service, get_docs_service
 from integrations.meet_client import get_meet_service
@@ -74,6 +75,8 @@ def main():
     POLL_INTERVAL_SECONDS = 300
 
     log.info("agent_startup")
+    if USE_LOCAL_MODEL:
+        set_backend("ollama")
     _init_db()
     prune_memory()
     prune_processed()

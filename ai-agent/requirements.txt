@@ -3,5 +3,6 @@ google-auth-oauthlib
 google-api-python-client
 slack-sdk[socket_mode]
 anthropic
+openai
 python-dotenv
 flask
