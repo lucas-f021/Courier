@@ -7,6 +7,10 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 _conversation_history = []
+_inbox = []
+
+def push_to_web(message):
+    _inbox.append(message)
 
 _HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -75,6 +79,14 @@ _HTML = """<!DOCTYPE html>
     return bubble;
   }
 
+  setInterval(async () => {
+    try {
+      const res = await fetch('/inbox');
+      const data = await res.json();
+      for (const msg of data.messages) addMsg(msg, 'agent');
+    } catch (_) {}
+  }, 3000);
+
   async function send() {
     const text = input.value.trim();
     if (!text) return;
@@ -102,11 +114,17 @@ _HTML = """<!DOCTYPE html>
 
 
 def start_web_server(port=5000):
-    from ai_agent import run_web_agent
+    from agent.ai_agent import run_web_agent
 
     @app.route('/')
     def index():
         return _HTML
+
+    @app.route('/inbox')
+    def inbox():
+        messages = list(_inbox)
+        _inbox.clear()
+        return jsonify({'messages': messages})
 
     @app.route('/chat', methods=['POST'])
     def chat():

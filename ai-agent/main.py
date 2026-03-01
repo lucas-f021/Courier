@@ -10,14 +10,14 @@ import time
 import sqlite3
 import logging
 import threading
-from gmail import get_gmail_service, get_recent_emails
-from slack_client import get_slack_client
-from slack_listener import start_listener
-from ai_agent import run_agent, run_slack_agent
-from calendar_client import get_calendar_service
-from drive_client import get_drive_service, get_docs_service
-from meet_client import get_meet_service
-from vector_memory import prune_memory
+from integrations.gmail import get_gmail_service, get_recent_emails
+from integrations.slack_client import get_slack_client
+from integrations.slack_listener import start_listener
+from agent.ai_agent import run_agent, run_slack_agent
+from integrations.calendar_client import get_calendar_service
+from integrations.drive_client import get_drive_service, get_docs_service
+from integrations.meet_client import get_meet_service
+from agent.vector_memory import prune_memory
 
 import sys
 _fmt = logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s')
@@ -84,11 +84,14 @@ def main():
     channel = os.getenv("SLACK_CHANNEL_ID")
 
     if USE_WEB_UI:
-        from web_server import start_web_server
+        from ui.web_server import start_web_server, push_to_web
+        notifier = push_to_web
         web_thread = threading.Thread(target=start_web_server, daemon=True)
         web_thread.start()
         log.info("ui_mode | mode=web | url=http://127.0.0.1:5000")
     else:
+        from integrations.slack_client import post_message as _post
+        notifier = lambda msg: _post(slack, channel, msg)
         def agent_callback(text, channel, thread_ts, is_dm):
             run_slack_agent(text, channel, thread_ts, is_dm, slack)
         listener_thread = threading.Thread(target=start_listener, args=(slack, agent_callback), daemon=True)
@@ -104,7 +107,7 @@ def main():
 
                 for email in new_emails:
                     try:
-                        run_agent(email, gmail, slack, channel, calendar, drive, docs, meet)
+                        run_agent(email, gmail, slack, channel, calendar, drive, docs, meet, notifier=notifier)
                         mark_processed(email['id'])
                     except Exception as e:
                         log.error(f"email_error | id={email['id']} | error={str(e)}")

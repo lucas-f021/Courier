@@ -12,9 +12,9 @@ import logging
 log = logging.getLogger(__name__)
 
 if sys.platform == 'win32':
-    _lib_path = os.path.join(os.path.dirname(__file__), 'base64.dll')
+    _lib_path = os.path.join(os.path.dirname(__file__), '..', 'base64.dll')
 else:
-    _lib_path = os.path.join(os.path.dirname(__file__), 'base64.so')
+    _lib_path = os.path.join(os.path.dirname(__file__), '..', 'base64.so')
 
 _b64lib = ctypes.CDLL(_lib_path)
 

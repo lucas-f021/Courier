@@ -81,10 +81,10 @@ tools = [
     }
 ]
 
-def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None, drive_service=None, docs_service=None, meet_service=None):
+def run_agent(email, gmail_service, slack_client, slack_channel, calendar_service=None, drive_service=None, docs_service=None, meet_service=None, notifier=None):
     log.info(f"agent_start | from={email['from']} | subject={email['subject']}")
 
-    from vector_memory import retrieve_similar_emails, store_email_embedding
+    from agent.vector_memory import retrieve_similar_emails, store_email_embedding
     query = f"{email['subject']} {email['body'][:300]}"
     similar = retrieve_similar_emails(query)
     memory_context = ""
@@ -96,7 +96,7 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
 
     calendar_context = ""
     if calendar_service is not None:
-        from calendar_client import get_upcoming_events
+        from integrations.calendar_client import get_upcoming_events
         events = get_upcoming_events(calendar_service, max_results=10)
         if events:
             lines = ["[CALENDAR CONTEXT — your upcoming events]"]
@@ -107,7 +107,7 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
 
     meet_context = ""
     if meet_service is not None:
-        from meet_client import get_recent_transcripts
+        from integrations.meet_client import get_recent_transcripts
         transcripts = get_recent_transcripts(meet_service, max_results=3)
         if transcripts:
             lines = ["[MEET CONTEXT — recent meeting transcripts]"]
@@ -148,26 +148,29 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
                 if block.type == "tool_use":
                     tool_fired = True
                     log.info(f"tool_called | tool={block.name}")
-                    result = _execute_tool(block.name, block.input, email, gmail_service, slack_client, slack_channel, drive_service, docs_service)
+                    result = _execute_tool(block.name, block.input, email, gmail_service, slack_client, slack_channel, drive_service, docs_service, notifier=notifier)
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_results})
 
-def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None, docs_service=None):
-    from gmail import send_reply
+def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None, docs_service=None, notifier=None):
+    from integrations.gmail import send_reply
     if name == "draft_reply":
         send_reply(gmail_service, inputs['to'], inputs['subject'], inputs['body'], draft_mode=True)
         return f"Draft saved for {inputs['to']}"
 
-    from slack_client import post_message
     if name == "post_to_slack":
-        post_message(slack_client, slack_channel, inputs['message'])
-        return "Posted to Slack"
+        if notifier:
+            notifier(inputs['message'])
+        else:
+            from integrations.slack_client import post_message
+            post_message(slack_client, slack_channel, inputs['message'])
+        return "Posted"
 
     if name == "search_drive":
         if drive_service is None:
             return "Drive not available"
-        from drive_client import search_drive_files
+        from integrations.drive_client import search_drive_files
         files = search_drive_files(drive_service, inputs['query'])
         if not files:
             return "No files found"
@@ -179,7 +182,7 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
         if docs_service is None:
             return "Docs not available"
         import re
-        from drive_client import read_doc_content
+        from integrations.drive_client import read_doc_content
         url = inputs['doc_url']
         match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
         if not match:
@@ -205,7 +208,7 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
             messages=messages
         )
         if response.stop_reason == "end_turn":
-            from slack_client import reply_in_thread, post_message
+            from integrations.slack_client import reply_in_thread, post_message
             for block in response.content:
                 if hasattr(block, 'text') and block.text:
                     if is_dm:
@@ -215,7 +218,7 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
             log.info(f"slack_agent_done | channel={channel}")
             break
         if response.stop_reason == "tool_use":
-            from slack_client import reply_in_thread, post_message
+            from integrations.slack_client import reply_in_thread, post_message
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
