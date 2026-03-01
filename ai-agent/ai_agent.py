@@ -127,6 +127,9 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
             f"Handle this email."
         )
     }]
+
+    tool_fired = False
+
     while True:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -137,12 +140,13 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
         )
         if response.stop_reason == "end_turn":
             log.info(f"agent_done | from={email['from']}")
-            store_email_embedding(email)
+            store_email_embedding(email, important = tool_fired)
             break
         if response.stop_reason == "tool_use":
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
+                    tool_fired = True
                     log.info(f"tool_called | tool={block.name}")
                     result = _execute_tool(block.name, block.input, email, gmail_service, slack_client, slack_channel, drive_service, docs_service)
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})

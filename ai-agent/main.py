@@ -13,12 +13,19 @@ from ai_agent import run_agent, run_slack_agent
 from calendar_client import get_calendar_service
 from drive_client import get_drive_service, get_docs_service
 from meet_client import get_meet_service
+from vector_memory import prune_memory
 
+import sys
 _fmt = logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s')
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(name)s | %(levelname)s | %(message)s')
-_file_handler = logging.FileHandler('agent.log')
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.setFormatter(_fmt)
+_stream_handler.stream = open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False)
+_root.addHandler(_stream_handler)
+_file_handler = logging.FileHandler('agent.log', encoding='utf-8')
 _file_handler.setFormatter(_fmt)
-logging.getLogger().addHandler(_file_handler)
+_root.addHandler(_file_handler)
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +33,7 @@ DB_PATH = "processed_emails.db"
 
 def _init_db():
     con = sqlite3.connect(DB_PATH)
-    con.execute("CREATE TABLE IF NOT EXISTS processed (email_id TEXT PRIMARY KEY)")
+    con.execute("CREATE TABLE IF NOT EXISTS processed (email_id TEXT PRIMARY KEY, processed_at TEXT)")
     con.commit()
     con.close()
 
@@ -37,10 +44,23 @@ def is_processed(email_id: str) -> bool:
     return row is not None
 
 def mark_processed(email_id: str):
+    from datetime import datetime, timezone
+    ts = datetime.now(tz=timezone.utc).isoformat()
     con = sqlite3.connect(DB_PATH)
-    con.execute("INSERT OR IGNORE INTO processed VALUES (?)", (email_id,))
+    con.execute("INSERT OR IGNORE INTO processed VALUES (?, ?)", (email_id, ts))
     con.commit()
     con.close()
+
+def prune_processed(keep_days=30):
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=keep_days)).isoformat()
+    con = sqlite3.connect(DB_PATH)
+    con.execute("DELETE FROM processed WHERE processed_at < ? OR processed_at IS NULL", (cutoff,))
+    con.commit()
+    con.execute("VACUUM")
+    con.commit()
+    con.close()
+    log.info(f"processed_pruned | keep_days={keep_days}")
 
 
 def main():
@@ -48,6 +68,8 @@ def main():
 
     log.info("agent_startup")
     _init_db()
+    prune_memory()
+    prune_processed()
 
     gmail = get_gmail_service()
     slack = get_slack_client()
