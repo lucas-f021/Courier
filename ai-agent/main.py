@@ -10,11 +10,12 @@ import os
 import time
 import sqlite3
 import logging
+import logging.handlers
 import threading
 from integrations.gmail import get_gmail_service, get_recent_emails
 from integrations.slack_client import get_slack_client
 from integrations.slack_listener import start_listener
-from agent.ai_agent import run_agent, run_slack_agent, set_backend
+from agent.ai_agent import run_agent, run_slack_agent, set_backend, set_services
 from integrations.calendar_client import get_calendar_service
 from integrations.drive_client import get_drive_service, get_docs_service
 from integrations.meet_client import get_meet_service
@@ -30,7 +31,9 @@ _stream_handler = logging.StreamHandler(sys.stdout)
 _stream_handler.setFormatter(_fmt)
 _stream_handler.stream = open(sys.stdout.fileno(), mode='w', encoding='utf-8', closefd=False)
 _root.addHandler(_stream_handler)
-_file_handler = logging.FileHandler(os.path.join(_ROOT, 'agent.log'), encoding='utf-8')
+_file_handler = logging.handlers.RotatingFileHandler(
+    os.path.join(_ROOT, 'agent.log'), maxBytes=5*1024*1024, backupCount=3, encoding='utf-8'
+)
 _file_handler.setFormatter(_fmt)
 _root.addHandler(_file_handler)
 
@@ -87,6 +90,7 @@ def main():
     drive = get_drive_service()
     docs = get_docs_service()
     meet = get_meet_service()
+    set_services(drive=drive, docs=docs, gmail=gmail, calendar=calendar, meet=meet)
     channel = os.getenv("SLACK_CHANNEL_ID")
 
     if USE_WEB_UI:

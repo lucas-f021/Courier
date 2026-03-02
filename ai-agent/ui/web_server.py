@@ -38,8 +38,21 @@ def chat():
         return jsonify({'reply': ''})
     log.info(f"web_request | msg_len={len(text)}")
     run_web_agent = _get_run_web_agent()
-    reply = run_web_agent(text, _conversation_history)
+    try:
+        reply = run_web_agent(text, _conversation_history)
+    except Exception as e:
+        log.error(f"web_agent_error | error={str(e)}")
+        # Remove the failed user message so it doesn't poison future requests
+        if _conversation_history and _conversation_history[-1].get("role") == "user":
+            _conversation_history.pop()
+        return jsonify({'reply': f'Agent error: {str(e)}'})
     return jsonify({'reply': reply})
+
+@app.route('/reset', methods=['POST'])
+def reset():
+    _conversation_history.clear()
+    log.info("web_conversation_reset")
+    return jsonify({'status': 'ok'})
 
 _HTML = """<!DOCTYPE html>
 <html lang="en">
