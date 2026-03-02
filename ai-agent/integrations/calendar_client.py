@@ -88,6 +88,57 @@ def get_upcoming_events(service, max_results=10):
         return []
 
 
+def update_event(service, event_id, summary=None, start_time=None, end_time=None, description=None, attendees=None):
+    """Update an existing calendar event. Only provided fields are changed."""
+    try:
+        event = service.events().get(calendarId='primary', eventId=event_id).execute()
+        if summary:
+            event['summary'] = summary
+        if start_time:
+            event['start'] = {'dateTime': start_time, 'timeZone': 'America/New_York'}
+        if end_time:
+            event['end'] = {'dateTime': end_time, 'timeZone': 'America/New_York'}
+        if description is not None:
+            event['description'] = description
+        if attendees is not None:
+            event['attendees'] = [{'email': e} for e in attendees]
+        updated = service.events().update(calendarId='primary', eventId=event_id, body=event).execute()
+        log.info(f"calendar_event_updated | id={event_id} | summary={updated.get('summary')}")
+        return {
+            'id': updated['id'],
+            'summary': updated.get('summary'),
+            'start': updated['start'].get('dateTime'),
+            'link': updated.get('htmlLink'),
+        }
+    except Exception as e:
+        log.error(f"calendar_update_error | id={event_id} | error={str(e)}")
+        return None
+
+
+def check_availability(service, time_min, time_max):
+    """Check free/busy status for a time range using the FreeBusy API.
+    time_min/time_max: ISO 8601 datetime strings.
+    Returns a dict with 'busy' (list of busy periods) and 'free' (bool).
+    """
+    try:
+        body = {
+            'timeMin': time_min,
+            'timeMax': time_max,
+            'timeZone': 'America/New_York',
+            'items': [{'id': 'primary'}]
+        }
+        result = service.freebusy().query(body=body).execute()
+        busy_periods = result['calendars']['primary']['busy']
+        log.info(f"availability_checked | busy_count={len(busy_periods)} | range={time_min} to {time_max}")
+        return {
+            'busy': [{'start': p['start'], 'end': p['end']} for p in busy_periods],
+            'free': len(busy_periods) == 0
+        }
+    except Exception as e:
+        log.error(f"availability_error | error={str(e)}")
+        return None
+
+
 def delete_event(service, event_id):
     """Delete a calendar event by its ID."""
     try:

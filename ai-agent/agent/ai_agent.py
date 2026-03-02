@@ -196,6 +196,46 @@ tools_anthropic = [
             },
             "required": ["event_id"]
         }
+    },
+    {
+        "name": "update_event",
+        "description": "Update an existing Google Calendar event. Use check_calendar first to find the event ID, then update it. Only the fields you provide will be changed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {"type": "string", "description": "The calendar event ID (from check_calendar results)"},
+                "summary": {"type": "string", "description": "New event title (optional)"},
+                "start_time": {"type": "string", "description": "New start time in ISO 8601 format (optional)"},
+                "end_time": {"type": "string", "description": "New end time in ISO 8601 format (optional)"},
+                "description": {"type": "string", "description": "New event description (optional)"},
+                "attendees": {"type": "array", "items": {"type": "string"}, "description": "New list of attendee email addresses (optional)"}
+            },
+            "required": ["event_id"]
+        }
+    },
+    {
+        "name": "search_emails",
+        "description": "Search Gmail for emails matching a query. Uses the same syntax as the Gmail search bar (e.g. 'from:john budget', 'subject:report', 'after:2026/01/01').",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Gmail search query"},
+                "max_results": {"type": "integer", "description": "Number of results to return (default 5)"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "check_availability",
+        "description": "Check if a time slot is free or busy on Google Calendar. Use when asked about availability for a specific time range.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "time_min": {"type": "string", "description": "Start of time range in ISO 8601 format (e.g. 2026-03-02T09:00:00)"},
+                "time_max": {"type": "string", "description": "End of time range in ISO 8601 format (e.g. 2026-03-02T17:00:00)"}
+            },
+            "required": ["time_min", "time_max"]
+        }
     }
 ]
 
@@ -219,8 +259,11 @@ _TOOL_KEYWORD_MAP = {
     "read_doc": ["read doc", "read the doc", "read this doc", "read document", "open doc", "docs.google.com/document"],
     "draft_reply": ["draft a reply", "draft reply", "draft an email", "draft email", "write a reply", "reply to"],
     "post_to_slack": ["post to slack", "send to slack", "slack message", "message slack", "tell slack"],
+    "search_emails": ["search email", "search emails", "search my email", "search inbox", "find email", "find emails", "find the email", "look for email", "email from", "email about", "emails from", "emails about"],
     "delete_event": ["delete event", "delete the event", "remove event", "remove the event", "cancel event", "cancel the event", "cancel meeting", "cancel the meeting", "delete meeting", "delete the meeting", "remove meeting", "remove the meeting", "remove from calendar", "delete from calendar", "please delete", "delete it", "remove it", "cancel it", "delete the calender", "delete the calendar", "remove the calender", "remove the calendar"],
+    "update_event": ["update event", "update the event", "change event", "change the event", "move event", "move the event", "reschedule", "modify event", "modify the event", "edit event", "edit the event", "change the time", "move the meeting", "update meeting", "change meeting"],
     "create_event": ["add event", "create event", "schedule a meeting", "schedule meeting", "add to calendar", "add to my calendar", "put on my calendar", "book a meeting", "set up a meeting", "new event"],
+    "check_availability": ["am i free at", "am i available", "is the slot free", "free at", "busy at", "available at", "open at", "check if i'm free", "check availability"],
     "get_transcripts": ["transcript", "meeting notes", "what was discussed", "meeting summary", "what happened in the meeting", "recap the meeting"],
     "check_calendar": ["calendar", "calender", "schedule", "meetings today", "what's on my", "my agenda", "upcoming meetings", "upcoming events", "any meetings", "am i free", "availability", "do i have"],
 }
@@ -243,6 +286,9 @@ If the user asks about their calendar, schedule, or meetings, call check_calenda
 If the user asks about meeting transcripts or what was discussed, call get_transcripts.
 If the user asks to add, schedule, or create an event or meeting, call create_event with summary, start_time (ISO 8601), and end_time (ISO 8601). Use today's date if not specified.
 If the user asks to delete, remove, or cancel an event or meeting, call delete_event with the event_id. If you don't have the event_id, call check_calendar first to find it.
+If the user asks to update, change, reschedule, or modify an event, call update_event with the event_id and the fields to change. If you don't have the event_id, call check_calendar first.
+If the user asks to search for emails, call search_emails with a Gmail search query (e.g. 'from:john', 'subject:report', 'budget approval').
+If the user asks about availability for a specific time, call check_availability with time_min and time_max in ISO 8601 format.
 
 Do NOT just describe what you would do — actually call the tool.
 After getting the tool result, summarize it naturally for the user. Present the data clearly."""
@@ -544,6 +590,53 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
         log.info(f"tool_called | tool=delete_event | id={inputs['event_id']}")
         return f"Event deleted successfully (id: {inputs['event_id']})"
 
+    if name == "update_event":
+        if _calendar_service is None:
+            return "Calendar not available"
+        from integrations.calendar_client import update_event
+        result = update_event(
+            _calendar_service,
+            event_id=inputs['event_id'],
+            summary=inputs.get('summary'),
+            start_time=inputs.get('start_time'),
+            end_time=inputs.get('end_time'),
+            description=inputs.get('description'),
+            attendees=inputs.get('attendees'),
+        )
+        if not result:
+            return "Failed to update event"
+        log.info(f"tool_called | tool=update_event | id={inputs['event_id']}")
+        return f"Event updated: {result['summary']} at {result['start']} — {result['link']}"
+
+    if name == "search_emails":
+        if _gmail_service is None:
+            return "Gmail not available"
+        from integrations.gmail import search_emails
+        max_r = inputs.get('max_results', 5)
+        emails = search_emails(_gmail_service, inputs['query'], max_results=max_r)
+        if not emails:
+            return "No emails found matching that query"
+        lines = []
+        for e in emails:
+            lines.append(f"- {e['subject']} (from: {e['from']}) — {e['snippet'][:100]}")
+        log.info(f"tool_called | tool=search_emails | query={inputs['query']} | results={len(emails)}")
+        return "\n".join(lines)
+
+    if name == "check_availability":
+        if _calendar_service is None:
+            return "Calendar not available"
+        from integrations.calendar_client import check_availability
+        result = check_availability(_calendar_service, inputs['time_min'], inputs['time_max'])
+        if result is None:
+            return "Failed to check availability"
+        if result['free']:
+            log.info(f"tool_called | tool=check_availability | free=True")
+            return f"You are FREE from {inputs['time_min']} to {inputs['time_max']}. No conflicts."
+        else:
+            busy_lines = [f"- Busy: {p['start']} to {p['end']}" for p in result['busy']]
+            log.info(f"tool_called | tool=check_availability | free=False | conflicts={len(result['busy'])}")
+            return f"You have {len(result['busy'])} conflict(s):\n" + "\n".join(busy_lines)
+
     log.warning(f"unknown_tool | tool={name}")
     return f"Unknown tool: {name}"
 
@@ -595,7 +688,7 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
                     else:
                         reply_in_thread(slack_client, channel, thread_ts, tc["input"]['message'])
                     result = "Reply sent"
-                elif tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event"):
+                elif tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability"):
                     result = _execute_tool(tc["name"], tc["input"], None, _gmail_service, slack_client, channel, drive_service=_drive_service, docs_service=_docs_service)
                 else:
                     result = f"Unknown tool: {tc['name']}"
@@ -652,7 +745,7 @@ def run_web_agent(text, conversation_history):
             tool_results = []
             for tc in resp["tool_calls"]:
                 log.info(f"tool_called | tool={tc['name']} | source=web")
-                if tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event"):
+                if tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability"):
                     result = _execute_tool(tc["name"], tc["input"], None, _gmail_service, None, None, drive_service=_drive_service, docs_service=_docs_service)
                 elif tc["name"] == "post_to_slack":
                     result = "Slack not available in web mode"

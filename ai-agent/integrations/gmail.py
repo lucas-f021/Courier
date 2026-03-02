@@ -84,6 +84,33 @@ def get_recent_emails(service, max_results = 5):
         emails.append({'id': msg['id'], 'subject': subject, 'from': frm, 'body': body})
     return emails
 
+def search_emails(service, query, max_results=5):
+    """Search Gmail by query string (same syntax as Gmail search bar).
+    Returns a list of matching email dicts with id, subject, from, snippet.
+    """
+    try:
+        results = service.users().messages().list(
+            userId='me', q=query, maxResults=max_results
+        ).execute()
+        messages = results.get('messages', [])
+        emails = []
+        for msg in messages:
+            msg_data = service.users().messages().get(
+                userId='me', id=msg['id'], format='metadata',
+                metadataHeaders=['Subject', 'From']
+            ).execute()
+            headers = msg_data.get('payload', {}).get('headers', [])
+            subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject')
+            frm = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown')
+            snippet = msg_data.get('snippet', '')
+            emails.append({'id': msg['id'], 'subject': subject, 'from': frm, 'snippet': snippet})
+        log.info(f"email_search | query={query} | results={len(emails)}")
+        return emails
+    except Exception as e:
+        log.error(f"email_search_error | query={query} | error={str(e)}")
+        return []
+
+
 def send_reply(service, to, subject, body, draft_mode=True):
     message = MIMEText(body)
     message['to'] = to
