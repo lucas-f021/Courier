@@ -4,7 +4,7 @@ AI-powered productivity agent that connects your Gmail, Google Workspace, and Sl
 
 ## Features
 
-- **Gmail** — search, read, draft replies, poll for new emails automatically
+- **Gmail** — search, read, send emails, draft replies, poll for new emails automatically
 - **Google Calendar** — check availability, create/update/delete events
 - **Google Drive & Docs** — search files, read document contents
 - **Google Meet** — pull meeting transcripts for follow-up context
@@ -12,7 +12,7 @@ AI-powered productivity agent that connects your Gmail, Google Workspace, and Sl
 - **Web UI** — browser-based chat interface on `localhost:5000`
 - **Dual AI Backend** — use Anthropic Claude (cloud) or Ollama (local, free)
 - **Semantic Memory** — ChromaDB vector search for context-aware responses
-- **13 Built-in Tools** — the agent calls tools autonomously based on your request
+- **14 Built-in Tools** — the agent calls tools autonomously based on your request
 - **C Base64 Decoder** — custom C library for decoding email bodies via ctypes
 
 ## Quickstart
@@ -143,13 +143,14 @@ python main.py
 
 ## Tools
 
-The agent has 13 tools it can call autonomously:
+The agent has 14 tools it can call autonomously:
 
 | Tool | Description |
 |------|-------------|
 | `search_emails` | Search Gmail by query |
 | `read_email` | Read the full body of an email |
-| `draft_reply` | Save an email draft to Gmail |
+| `draft_reply` | Save an email reply as a draft |
+| `send_email` | Send a new email immediately |
 | `check_calendar` | List upcoming calendar events |
 | `create_event` | Create a new calendar event |
 | `update_event` | Modify an existing event |
@@ -171,7 +172,7 @@ ai-agent/
 ├── requirements.txt
 ├── .env.example
 ├── agent/
-│   ├── ai_agent.py         # AI agent loop, 13 tools, dual backend
+│   ├── ai_agent.py         # AI agent loop, 14 tools, dual backend
 │   └── vector_memory.py    # ChromaDB semantic memory
 ├── integrations/
 │   ├── gmail.py            # Gmail API + C decoder bridge

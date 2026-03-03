@@ -254,6 +254,19 @@ tools_anthropic = [
         }
     },
     {
+        "name": "send_email",
+        "description": "Send a new email immediately. Use when the user explicitly asks to send an email (not a draft). Do NOT use for replies — use draft_reply for replies.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient email address"},
+                "subject": {"type": "string", "description": "Email subject"},
+                "body": {"type": "string", "description": "Email body text"}
+            },
+            "required": ["to", "subject", "body"]
+        }
+    },
+    {
         "name": "set_reminder",
         "description": "Set a reminder that will notify you after a specified number of minutes. Use when the user says 'remind me' about something.",
         "input_schema": {
@@ -536,6 +549,13 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
         send_reply(gmail_service, inputs['to'], inputs['subject'], inputs['body'], draft_mode=True)
         return f"Draft saved for {inputs['to']}"
 
+    if name == "send_email":
+        from integrations.gmail import send_email
+        success = send_email(gmail_service or _gmail_service, inputs['to'], inputs['subject'], inputs['body'])
+        if success:
+            return f"Email sent to {inputs['to']}"
+        return "Failed to send email"
+
     if name == "post_to_slack":
         if notifier:
             notifier(inputs['message'])
@@ -767,7 +787,7 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
                     else:
                         reply_in_thread(slack_client, channel, thread_ts, tc["input"]['message'])
                     result = "Reply sent"
-                elif tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability", "read_email", "set_reminder"):
+                elif tc["name"] in ("search_drive", "read_doc", "draft_reply", "send_email", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability", "read_email", "set_reminder"):
                     # Build a reminder callback that posts to the right place (DM or thread)
                     def _slack_reminder(msg, _ch=channel, _ts=thread_ts, _dm=is_dm, _sc=slack_client):
                         if _dm:
@@ -833,7 +853,7 @@ def run_web_agent(text, conversation_history):
             tool_results = []
             for tc in resp["tool_calls"]:
                 log.info(f"tool_called | tool={tc['name']} | source=web")
-                if tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability", "read_email", "set_reminder"):
+                if tc["name"] in ("search_drive", "read_doc", "draft_reply", "send_email", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability", "read_email", "set_reminder"):
                     result = _execute_tool(tc["name"], tc["input"], None, _gmail_service, None, None, drive_service=_drive_service, docs_service=_docs_service)
                 elif tc["name"] == "post_to_slack":
                     result = "Slack not available in web mode"

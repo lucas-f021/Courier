@@ -140,6 +140,21 @@ def read_email(service, email_id):
         return None
 
 
+def send_email(service, to, subject, body):
+    """Send a new email immediately (not a reply, not a draft)."""
+    message = MIMEText(body)
+    message['to'] = to
+    message['subject'] = subject
+    raw = _b64std.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+    try:
+        service.users().messages().send(userId='me', body={'raw': raw}).execute()
+        log.info(f"email_sent | to={to} | subject={subject}")
+        return True
+    except Exception as e:
+        log.error(f"email_send_error | to={to} | error={str(e)}")
+        return False
+
+
 def send_reply(service, to, subject, body, draft_mode=True):
     message = MIMEText(body)
     message['to'] = to
