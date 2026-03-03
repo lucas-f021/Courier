@@ -44,7 +44,7 @@ def _get_client():
 
 def _get_model():
     if _backend == "ollama":
-        return os.getenv("OLLAMA_MODEL", "qwen3:8b")
+        return os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
     return "claude-haiku-4-5-20251001"
 
 # --- System prompts ---
@@ -645,25 +645,28 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
 def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
     log.info(f"slack_agent_start | channel={channel} | is_dm={is_dm}")
     messages = [{"role": "user", "content": f"[SLACK MESSAGE]\n{text}"}]
-    # For Ollama: only pass tools if the user explicitly asked for one
-    forced_choice = None
-    if _backend == "ollama":
-        detected = _detect_tool(text)
-        if detected:
-            use_tools = tools_openai
-            system_prompt = _system_prompt_local_with_tools
-            forced_choice = {"type": "function", "function": {"name": detected}}
-        else:
-            use_tools = []
-            system_prompt = _get_system_prompt()
-    else:
-        use_tools = None
-        system_prompt = _get_system_prompt()
+    # --- Guardrails OFF (uncomment to re-enable) ---
+    # forced_choice = None
+    # if _backend == "ollama":
+    #     detected = _detect_tool(text)
+    #     if detected:
+    #         use_tools = tools_openai
+    #         system_prompt = _system_prompt_local_with_tools
+    #         forced_choice = {"type": "function", "function": {"name": detected}}
+    #     else:
+    #         use_tools = []
+    #         system_prompt = _get_system_prompt()
+    # else:
+    #     use_tools = None
+    #     system_prompt = _get_system_prompt()
+    # --- Guardrails OFF — using native tool calling ---
+    system_prompt = _get_system_prompt()
+    use_tools = None  # None = all tools for both backends
     max_tool_rounds = 5
     tool_round = 0
     while True:
-        resp = _chat(messages, system=system_prompt, tools=use_tools, tool_choice=forced_choice)
-        forced_choice = None
+        resp = _chat(messages, system=system_prompt, tools=use_tools)
+        # forced_choice = None  # uncomment if re-enabling guardrails
         if resp["stop_reason"] == "end_turn":
             from integrations.slack_client import reply_in_thread, post_message
             for text_block in resp["text_blocks"]:
@@ -694,9 +697,8 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
                     result = f"Unknown tool: {tc['name']}"
                 tool_results.append({"id": tc["id"], "result": result})
             _append_assistant_and_results(messages, resp["raw"], resp["tool_calls"], tool_results)
-            # After first tool call, stop passing tools so model produces a text response
-            if _backend == "ollama":
-                use_tools = []
+            # if _backend == "ollama":  # uncomment to strip tools after first call
+            #     use_tools = []
         else:
             break
 
@@ -704,31 +706,35 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
 # --- run_web_agent ---
 def run_web_agent(text, conversation_history):
     log.info(f"web_agent_start | msg_len={len(text)}")
-    detected = _detect_tool(text) if _backend == "ollama" else None
-    if detected:
-        conversation_history.append({"role": "user", "content": text})
-    else:
-        conversation_history.append({"role": "user", "content": f"[WEB MESSAGE]\n{text}"})
+    # --- Guardrails OFF (uncomment to re-enable) ---
+    # detected = _detect_tool(text) if _backend == "ollama" else None
+    # if detected:
+    #     conversation_history.append({"role": "user", "content": text})
+    # else:
+    #     conversation_history.append({"role": "user", "content": f"[WEB MESSAGE]\n{text}"})
+    # forced_choice = None
+    # if _backend == "ollama":
+    #     if detected:
+    #         use_tools = tools_openai
+    #         system_prompt = _system_prompt_local_with_tools
+    #         forced_choice = {"type": "function", "function": {"name": detected}}
+    #     else:
+    #         use_tools = []
+    #         system_prompt = _get_system_prompt()
+    # else:
+    #     use_tools = None
+    #     system_prompt = _get_system_prompt()
+    # --- Guardrails OFF — using native tool calling ---
+    conversation_history.append({"role": "user", "content": f"[WEB MESSAGE]\n{text}"})
     messages = list(conversation_history)
-    # For Ollama: only pass tools if the user explicitly asked for one
-    forced_choice = None
-    if _backend == "ollama":
-        if detected:
-            use_tools = tools_openai
-            system_prompt = _system_prompt_local_with_tools
-            forced_choice = {"type": "function", "function": {"name": detected}}
-        else:
-            use_tools = []
-            system_prompt = _get_system_prompt()
-    else:
-        use_tools = None  # None = use defaults (all tools for Anthropic)
-        system_prompt = _get_system_prompt()
+    system_prompt = _get_system_prompt()
+    use_tools = None  # None = all tools for both backends
     reply = ""
     max_tool_rounds = 5
     tool_round = 0
     while True:
-        resp = _chat(messages, system=system_prompt, tools=use_tools, tool_choice=forced_choice)
-        forced_choice = None  # Only force on the first call
+        resp = _chat(messages, system=system_prompt, tools=use_tools)
+        # forced_choice = None  # uncomment if re-enabling guardrails
         if resp["stop_reason"] == "end_turn":
             for text_block in resp["text_blocks"]:
                 reply += text_block
@@ -753,9 +759,8 @@ def run_web_agent(text, conversation_history):
                     result = f"Unknown tool: {tc['name']}"
                 tool_results.append({"id": tc["id"], "result": result})
             _append_assistant_and_results(messages, resp["raw"], resp["tool_calls"], tool_results)
-            # After first tool call, stop passing tools so model produces a text response
-            if _backend == "ollama":
-                use_tools = []
+            # if _backend == "ollama":  # uncomment to strip tools after first call
+            #     use_tools = []
         else:
             break
     return reply

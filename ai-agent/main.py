@@ -3,7 +3,7 @@ load_dotenv()
 
 # --- User config ---
 USE_WEB_UI = True       # Set to True to use browser chat instead of Slack
-USE_LOCAL_MODEL = True  # Set to True to use Ollama instead of Anthropic API
+USE_LOCAL_MODEL = False  # Set to True to use Ollama instead of Anthropic API
 # -------------------
 
 import os
@@ -22,7 +22,36 @@ from integrations.meet_client import get_meet_service
 from agent.vector_memory import prune_memory
 
 import sys
+import subprocess
 _ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _kill_port(port=5000):
+    """Kill any process holding the given port (Windows + Linux/Mac)."""
+    try:
+        my_pid = os.getpid()
+        if sys.platform == "win32":
+            result = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True
+            )
+            for line in result.stdout.splitlines():
+                if f":{port}" in line and "LISTENING" in line:
+                    pid = int(line.strip().split()[-1])
+                    if pid != my_pid:
+                        subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                                       capture_output=True)
+                        logging.getLogger(__name__).info(f"killed_ghost | port={port} | pid={pid}")
+        else:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"], capture_output=True, text=True
+            )
+            for pid_str in result.stdout.strip().splitlines():
+                pid = int(pid_str)
+                if pid != my_pid:
+                    os.kill(pid, 9)
+                    logging.getLogger(__name__).info(f"killed_ghost | port={port} | pid={pid}")
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"kill_port_failed | error={str(e)}")
 
 _fmt = logging.Formatter('%(asctime)s | %(name)s | %(levelname)s | %(message)s')
 _root = logging.getLogger()
@@ -94,6 +123,7 @@ def main():
     channel = os.getenv("SLACK_CHANNEL_ID")
 
     if USE_WEB_UI:
+        _kill_port(5000)
         from ui.web_server import start_web_server, push_to_web
         notifier = push_to_web
         web_thread = threading.Thread(target=start_web_server, daemon=True)
