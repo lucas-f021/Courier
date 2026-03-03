@@ -384,11 +384,19 @@ def _chat(messages, system=None, tools=None, tool_choice=None):
         stop = response.stop_reason
         if stop not in ("end_turn", "tool_use"):
             stop = "end_turn"
+        raw_content = []
+        for b in response.content:
+            if b.type == "text":
+                raw_content.append({"type": "text", "text": b.text})
+            elif b.type == "tool_use":
+                raw_content.append({"type": "tool_use", "id": b.id, "name": b.name, "input": b.input})
+            else:
+                raw_content.append({"type": b.type})
         return {
             "stop_reason": stop,
             "text_blocks": text_blocks,
             "tool_calls": tool_calls,
-            "raw": response.content
+            "raw": raw_content
         }
 
 

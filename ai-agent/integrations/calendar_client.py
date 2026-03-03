@@ -115,6 +115,19 @@ def update_event(service, event_id, summary=None, start_time=None, end_time=None
         return None
 
 
+def _ensure_tz(dt_str):
+    """Append Eastern timezone offset to a naive datetime string if no tz is present."""
+    import re
+    from datetime import datetime
+    if re.search(r'(Z|[+\-]\d{2}:?\d{2})$', dt_str):
+        return dt_str
+    try:
+        dt = datetime.fromisoformat(dt_str)
+        return dt.strftime('%Y-%m-%dT%H:%M:%S-05:00')
+    except ValueError:
+        return dt_str + '-05:00'
+
+
 def check_availability(service, time_min, time_max):
     """Check free/busy status for a time range using the FreeBusy API.
     time_min/time_max: ISO 8601 datetime strings.
@@ -122,8 +135,8 @@ def check_availability(service, time_min, time_max):
     """
     try:
         body = {
-            'timeMin': time_min,
-            'timeMax': time_max,
+            'timeMin': _ensure_tz(time_min),
+            'timeMax': _ensure_tz(time_max),
             'timeZone': 'America/New_York',
             'items': [{'id': 'primary'}]
         }

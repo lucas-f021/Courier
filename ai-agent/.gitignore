@@ -5,6 +5,8 @@ base64.dll
 base64.so
 base64decode.so
 base64decode.dll
+b64decode.so
+b64decode.dll
 __pycache__/
 *.pyc
 .DS_Store
