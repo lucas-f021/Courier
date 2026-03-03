@@ -32,6 +32,19 @@ def reply_in_thread(client, channel_id, thread_ts, text):
     except SlackApiError as e:
         log.error(f"slack_error | op=reply_in_thread | error={e.response['error']}")
 
+def get_thread_history(client, channel_id, thread_ts, limit=10):
+    """Fetch messages in a thread to provide conversation context."""
+    try:
+        result = client.conversations_replies(
+            channel=channel_id, ts=thread_ts, limit=limit
+        )
+        messages = result.get("messages", [])
+        log.info(f"thread_history_fetched | channel={channel_id} | thread={thread_ts} | count={len(messages)}")
+        return messages
+    except SlackApiError as e:
+        log.error(f"slack_error | op=get_thread_history | error={e.response['error']}")
+        return []
+
 def open_dm(client, user_id):
     """Open a DM channel with a user and return the channel ID."""
     try:

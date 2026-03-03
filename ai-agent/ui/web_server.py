@@ -75,7 +75,7 @@ _HTML = """<!DOCTYPE html>
   .row.user .msg { background: #0b93f6; color: white; border-bottom-right-radius: 3px; }
   .row.agent .msg { background: white; color: #222; border: 1px solid #ddd; border-bottom-left-radius: 3px; }
   #input-row { display: flex; padding: 12px; gap: 8px; background: white; border-top: 1px solid #ddd; }
-  #msg-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; }
+  #msg-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; resize: none; font-family: inherit; rows: 1; max-height: 120px; overflow-y: auto; }
   #send-btn { padding: 10px 20px; background: #0b93f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
   #send-btn:disabled { background: #aaa; cursor: not-allowed; }
 </style>
@@ -83,7 +83,7 @@ _HTML = """<!DOCTYPE html>
 <body>
 <div id="chat"></div>
 <div id="input-row">
-  <input id="msg-input" type="text" placeholder="Message your agent..." autofocus />
+  <textarea id="msg-input" rows="1" placeholder="Message your agent..." autofocus></textarea>
   <button id="send-btn" onclick="send()">Send</button>
 </div>
 <script>
@@ -91,7 +91,8 @@ _HTML = """<!DOCTYPE html>
   const input = document.getElementById('msg-input');
   const btn = document.getElementById('send-btn');
 
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+  input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = input.scrollHeight + 'px'; });
 
   function addMsg(text, role) {
     const row = document.createElement('div');
@@ -133,6 +134,7 @@ _HTML = """<!DOCTYPE html>
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
+    input.style.height = 'auto';
     btn.disabled = true;
     addMsg(text, 'user');
     const pending = addMsg('...', 'agent');

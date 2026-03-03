@@ -2,8 +2,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- User config ---
-USE_WEB_UI = True       # Set to True to use browser chat instead of Slack
-USE_LOCAL_MODEL = False  # Set to True to use Ollama instead of Anthropic API
+USE_WEB_UI = False       # Set to True to use browser chat instead of Slack
+USE_LOCAL_MODEL = True  # Set to True to use Ollama instead of Anthropic API
 # -------------------
 
 import os

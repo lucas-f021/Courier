@@ -15,6 +15,7 @@ _docs_service = None
 _gmail_service = None
 _calendar_service = None
 _meet_service = None
+_bot_user_id = None
 
 def set_services(drive=None, docs=None, gmail=None, calendar=None, meet=None):
     global _drive_service, _docs_service, _gmail_service, _calendar_service, _meet_service
@@ -97,9 +98,11 @@ When responding to a SLACK or WEB message:
 You are an assistant, not an autonomous actor. A human reviews everything before it is sent."""
 
 def _get_system_prompt():
+    from datetime import datetime
+    date_line = f"\n\nToday's date is {datetime.now().strftime('%A, %B %d, %Y')}."
     if _backend == "ollama":
-        return _system_prompt_local
-    return _system_prompt_anthropic
+        return _system_prompt_local + date_line
+    return _system_prompt_anthropic + date_line
 
 # --- Tool definitions (Anthropic format) ---
 tools_anthropic = [
@@ -644,7 +647,22 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
 # --- run_slack_agent ---
 def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
     log.info(f"slack_agent_start | channel={channel} | is_dm={is_dm}")
-    messages = [{"role": "user", "content": f"[SLACK MESSAGE]\n{text}"}]
+
+    # Fetch thread history for conversation context
+    global _bot_user_id
+    from integrations.slack_client import get_thread_history
+    thread_msgs = get_thread_history(slack_client, channel, thread_ts, limit=10)
+    messages = []
+    # Cache bot user ID to avoid calling auth_test() every message
+    if _bot_user_id is None:
+        _bot_user_id = slack_client.auth_test()["user_id"]
+    bot_user_id = _bot_user_id
+    for msg in thread_msgs[:-1]:  # all except the latest (current) message
+        if msg.get("bot_id") or msg.get("user") == bot_user_id:
+            messages.append({"role": "assistant", "content": [{"type": "text", "text": msg.get("text", "")}]})
+        else:
+            messages.append({"role": "user", "content": f"[SLACK MESSAGE]\n{msg.get('text', '')}"})
+    messages.append({"role": "user", "content": f"[SLACK MESSAGE]\n{text}"})
     # --- Guardrails OFF (uncomment to re-enable) ---
     # forced_choice = None
     # if _backend == "ollama":
