@@ -16,14 +16,16 @@ _gmail_service = None
 _calendar_service = None
 _meet_service = None
 _bot_user_id = None
+_notifier = None
 
-def set_services(drive=None, docs=None, gmail=None, calendar=None, meet=None):
-    global _drive_service, _docs_service, _gmail_service, _calendar_service, _meet_service
+def set_services(drive=None, docs=None, gmail=None, calendar=None, meet=None, notifier=None):
+    global _drive_service, _docs_service, _gmail_service, _calendar_service, _meet_service, _notifier
     _drive_service = drive
     _docs_service = docs
     _gmail_service = gmail
     _calendar_service = calendar
     _meet_service = meet
+    _notifier = notifier
 
 def set_backend(backend):
     global _backend, _client
@@ -238,6 +240,29 @@ tools_anthropic = [
                 "time_max": {"type": "string", "description": "End of time range in ISO 8601 format (e.g. 2026-03-02T17:00:00)"}
             },
             "required": ["time_min", "time_max"]
+        }
+    },
+    {
+        "name": "read_email",
+        "description": "Read the full body of a specific email by its ID. IMPORTANT: You must call search_emails FIRST to get valid email IDs. The email_id is a long alphanumeric string like '18e4a2b3c4d5e6f7' — never guess or make up an ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "email_id": {"type": "string", "description": "The Gmail message ID — must be a real ID returned by search_emails, never a made-up value"}
+            },
+            "required": ["email_id"]
+        }
+    },
+    {
+        "name": "set_reminder",
+        "description": "Set a reminder that will notify you after a specified number of minutes. Use when the user says 'remind me' about something.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "The reminder message"},
+                "minutes": {"type": "number", "description": "How many minutes from now to trigger the reminder"}
+            },
+            "required": ["message", "minutes"]
         }
     }
 ]
@@ -497,7 +522,7 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
             break
 
 
-def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None, docs_service=None, notifier=None):
+def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None, docs_service=None, notifier=None, reminder_callback=None):
     from integrations.gmail import send_reply
     if name == "draft_reply":
         send_reply(gmail_service, inputs['to'], inputs['subject'], inputs['body'], draft_mode=True)
@@ -621,7 +646,7 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
             return "No emails found matching that query"
         lines = []
         for e in emails:
-            lines.append(f"- {e['subject']} (from: {e['from']}) — {e['snippet'][:100]}")
+            lines.append(f"- [ID: {e['id']}] {e['subject']} (from: {e['from']}) — {e['snippet'][:100]}")
         log.info(f"tool_called | tool=search_emails | query={inputs['query']} | results={len(emails)}")
         return "\n".join(lines)
 
@@ -639,6 +664,31 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
             busy_lines = [f"- Busy: {p['start']} to {p['end']}" for p in result['busy']]
             log.info(f"tool_called | tool=check_availability | free=False | conflicts={len(result['busy'])}")
             return f"You have {len(result['busy'])} conflict(s):\n" + "\n".join(busy_lines)
+
+    if name == "read_email":
+        if _gmail_service is None:
+            return "Gmail not available"
+        from integrations.gmail import read_email
+        result = read_email(_gmail_service, inputs['email_id'])
+        if not result:
+            return "Failed to read email"
+        log.info(f"tool_called | tool=read_email | id={inputs['email_id']}")
+        return f"From: {result['from']}\nSubject: {result['subject']}\n\n{result['body'][:3000]}"
+
+    if name == "set_reminder":
+        minutes = inputs['minutes']
+        message = inputs['message']
+        cb = reminder_callback or _notifier
+        import threading
+        def _fire_reminder():
+            log.info(f"reminder_fired | message={message}")
+            if cb:
+                cb(f"Reminder: {message}")
+        timer = threading.Timer(minutes * 60, _fire_reminder)
+        timer.daemon = True
+        timer.start()
+        log.info(f"tool_called | tool=set_reminder | minutes={minutes} | message={message}")
+        return f"Reminder set for {minutes} minute(s) from now: {message}"
 
     log.warning(f"unknown_tool | tool={name}")
     return f"Unknown tool: {name}"
@@ -709,8 +759,14 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
                     else:
                         reply_in_thread(slack_client, channel, thread_ts, tc["input"]['message'])
                     result = "Reply sent"
-                elif tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability"):
-                    result = _execute_tool(tc["name"], tc["input"], None, _gmail_service, slack_client, channel, drive_service=_drive_service, docs_service=_docs_service)
+                elif tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability", "read_email", "set_reminder"):
+                    # Build a reminder callback that posts to the right place (DM or thread)
+                    def _slack_reminder(msg, _ch=channel, _ts=thread_ts, _dm=is_dm, _sc=slack_client):
+                        if _dm:
+                            post_message(_sc, _ch, msg)
+                        else:
+                            reply_in_thread(_sc, _ch, _ts, msg)
+                    result = _execute_tool(tc["name"], tc["input"], None, _gmail_service, slack_client, channel, drive_service=_drive_service, docs_service=_docs_service, reminder_callback=_slack_reminder)
                 else:
                     result = f"Unknown tool: {tc['name']}"
                 tool_results.append({"id": tc["id"], "result": result})
@@ -769,7 +825,7 @@ def run_web_agent(text, conversation_history):
             tool_results = []
             for tc in resp["tool_calls"]:
                 log.info(f"tool_called | tool={tc['name']} | source=web")
-                if tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability"):
+                if tc["name"] in ("search_drive", "read_doc", "draft_reply", "check_calendar", "get_transcripts", "create_event", "delete_event", "update_event", "search_emails", "check_availability", "read_email", "set_reminder"):
                     result = _execute_tool(tc["name"], tc["input"], None, _gmail_service, None, None, drive_service=_drive_service, docs_service=_docs_service)
                 elif tc["name"] == "post_to_slack":
                     result = "Slack not available in web mode"

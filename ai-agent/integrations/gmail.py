@@ -111,6 +111,30 @@ def search_emails(service, query, max_results=5):
         return []
 
 
+def read_email(service, email_id):
+    """Fetch the full body of a single email by its ID."""
+    try:
+        msg_data = service.users().messages().get(
+            userId='me', id=email_id, format='full'
+        ).execute()
+        headers = msg_data['payload']['headers']
+        subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject')
+        frm = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown')
+        body = ''
+        if 'parts' in msg_data['payload']:
+            for part in msg_data['payload']['parts']:
+                if part['mimeType'] == 'text/plain' and 'data' in part.get('body', {}):
+                    body = decode_base64_urlsafe(part['body']['data'])
+                    break
+        elif 'data' in msg_data['payload'].get('body', {}):
+            body = decode_base64_urlsafe(msg_data['payload']['body']['data'])
+        log.info(f"email_read | id={email_id} | from={frm} | subject={subject}")
+        return {'id': email_id, 'subject': subject, 'from': frm, 'body': body}
+    except Exception as e:
+        log.error(f"email_read_error | id={email_id} | error={str(e)}")
+        return None
+
+
 def send_reply(service, to, subject, body, draft_mode=True):
     message = MIMEText(body)
     message['to'] = to

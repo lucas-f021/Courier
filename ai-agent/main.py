@@ -119,7 +119,6 @@ def main():
     drive = get_drive_service()
     docs = get_docs_service()
     meet = get_meet_service()
-    set_services(drive=drive, docs=docs, gmail=gmail, calendar=calendar, meet=meet)
     channel = os.getenv("SLACK_CHANNEL_ID")
 
     if USE_WEB_UI:
@@ -137,6 +136,8 @@ def main():
         listener_thread = threading.Thread(target=start_listener, args=(slack, agent_callback), daemon=True)
         listener_thread.start()
         log.info("ui_mode | mode=slack")
+
+    set_services(drive=drive, docs=docs, gmail=gmail, calendar=calendar, meet=meet, notifier=notifier)
 
     try:
         while True:
