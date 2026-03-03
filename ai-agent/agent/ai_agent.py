@@ -41,6 +41,8 @@ def _get_client():
                 base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
                 api_key="ollama"
             )
+        elif _backend == "openai":
+            _client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         else:
             _client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     return _client
@@ -48,6 +50,8 @@ def _get_client():
 def _get_model():
     if _backend == "ollama":
         return os.getenv("OLLAMA_MODEL", "qwen3.5:9b")
+    if _backend == "openai":
+        return os.getenv("OPENAI_MODEL", "gpt-4o")
     return "claude-haiku-4-5-20251001"
 
 # --- System prompts ---
@@ -102,7 +106,7 @@ You are an assistant, not an autonomous actor. A human reviews everything before
 def _get_system_prompt():
     from datetime import datetime
     date_line = f"\n\nToday's date is {datetime.now().strftime('%A, %B %d, %Y')}."
-    if _backend == "ollama":
+    if _backend in ("ollama", "openai"):
         return _system_prompt_local + date_line
     return _system_prompt_anthropic + date_line
 
@@ -346,7 +350,7 @@ def _chat(messages, system=None, tools=None, tool_choice=None):
     client = _get_client()
     model = _get_model()
 
-    if _backend == "ollama":
+    if _backend in ("ollama", "openai"):
         oai_messages = []
         if system:
             oai_messages.append({"role": "system", "content": system})
@@ -442,7 +446,7 @@ def _to_openai_message(msg):
 
 def _append_assistant_and_results(messages, raw, tool_calls, tool_results_list):
     """Append the assistant response and tool results to message history."""
-    if _backend == "ollama":
+    if _backend in ("ollama", "openai"):
         # Append assistant message with tool_calls
         assistant_msg = {
             "role": "assistant",

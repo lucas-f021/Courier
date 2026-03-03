@@ -2,8 +2,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- User config ---
-USE_WEB_UI = True       # Set to True to use browser chat instead of Slack
+USE_WEB_UI = True        # Set to True to use browser chat instead of Slack
 USE_LOCAL_MODEL = False  # Set to True to use Ollama instead of Anthropic API
+USE_OPENAI_MODEL = False # Set to True to use OpenAI (GPT) instead of Anthropic API
 # -------------------
 
 import os
@@ -107,8 +108,12 @@ def main():
     POLL_INTERVAL_SECONDS = 300
 
     log.info("agent_startup")
+    if USE_LOCAL_MODEL and USE_OPENAI_MODEL:
+        raise ValueError("Only one of USE_LOCAL_MODEL or USE_OPENAI_MODEL can be True at a time.")
     if USE_LOCAL_MODEL:
         set_backend("ollama")
+    elif USE_OPENAI_MODEL:
+        set_backend("openai")
     _init_db()
     prune_memory()
     prune_processed()

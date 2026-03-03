@@ -10,7 +10,7 @@ AI-powered productivity agent that connects your Gmail, Google Workspace, and Sl
 - **Google Meet** — pull meeting transcripts for follow-up context
 - **Slack** — two-way conversations via @mentions and DMs (Socket Mode)
 - **Web UI** — browser-based chat interface on `localhost:5000`
-- **Dual AI Backend** — use Anthropic Claude (cloud) or Ollama (local, free)
+- **Triple AI Backend** — use Anthropic Claude, OpenAI GPT, or Ollama (local, free)
 - **Semantic Memory** — ChromaDB vector search for context-aware responses
 - **14 Built-in Tools** — the agent calls tools autonomously based on your request
 - **C Base64 Decoder** — custom C library for decoding email bodies via ctypes
@@ -83,13 +83,23 @@ In `main.py`, set:
 USE_LOCAL_MODEL = True
 ```
 
-**Option B: Anthropic Claude (cloud API)**
+**Option B: OpenAI GPT (cloud API)**
+
+Get an API key from [OpenAI](https://platform.openai.com/) and add it to your `.env`.
+
+In `main.py`, set:
+```python
+USE_OPENAI_MODEL = True
+```
+
+**Option C: Anthropic Claude (cloud API)**
 
 Get an API key from [Anthropic](https://console.anthropic.com/) and add it to your `.env`.
 
 In `main.py`, set:
 ```python
 USE_LOCAL_MODEL = False
+USE_OPENAI_MODEL = False
 ```
 
 ### 5. Configure environment
@@ -103,6 +113,8 @@ Edit `.env` with your values:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ANTHROPIC_API_KEY` | Only if using Claude | Anthropic API key |
+| `OPENAI_API_KEY` | Only if using OpenAI | OpenAI API key |
+| `OPENAI_MODEL` | No (defaults to `gpt-4o`) | OpenAI model name |
 | `OLLAMA_BASE_URL` | No (defaults to `http://localhost:11434/v1`) | Ollama server URL |
 | `OLLAMA_MODEL` | No (defaults to `qwen3.5:9b`) | Ollama model name |
 | `SLACK_BOT_TOKEN` | Only if using Slack mode | Slack bot token (`xoxb-...`) |
@@ -172,7 +184,7 @@ ai-agent/
 ├── requirements.txt
 ├── .env.example
 ├── agent/
-│   ├── ai_agent.py         # AI agent loop, 14 tools, dual backend
+│   ├── ai_agent.py         # AI agent loop, 14 tools, triple backend
 │   └── vector_memory.py    # ChromaDB semantic memory
 ├── integrations/
 │   ├── gmail.py            # Gmail API + C decoder bridge
