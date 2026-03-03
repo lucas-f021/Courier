@@ -16,6 +16,11 @@ if sys.platform == 'win32':
 else:
     _lib_path = os.path.join(os.path.dirname(__file__), '..', 'b64decode.so')
 
+_lib_path = os.path.realpath(_lib_path)
+_expected_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))
+if not _lib_path.startswith(_expected_dir + os.sep):
+    raise RuntimeError(f"base64 library resolved outside project directory: {_lib_path}")
+
 _b64lib = ctypes.CDLL(_lib_path)
 
 _b64lib.b64_decode.argtypes = [
