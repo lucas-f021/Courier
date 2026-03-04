@@ -1,13 +1,12 @@
 import ctypes
 import os
+import re
 import sys
 import base64 as _b64std
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from email.mime.text import MIMEText
 import logging
+from integrations.auth import get_credentials
 
 log = logging.getLogger(__name__)
 
@@ -22,19 +21,16 @@ if not _lib_path.startswith(_expected_dir + os.sep):
     raise RuntimeError(f"base64 library resolved outside project directory: {_lib_path}")
 
 _b64lib = ctypes.CDLL(_lib_path)
-
 _b64lib.b64_decode.argtypes = [
-    ctypes.c_char_p,
-    ctypes.c_char_p,
-    ctypes.c_size_t,
-    ctypes.POINTER(ctypes.c_size_t)
+    ctypes.c_char_p, ctypes.c_char_p,
+    ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)
 ]
-
 _b64lib.b64_decode.restype = ctypes.c_int
+
 
 def decode_base64_urlsafe(encoded: str) -> str:
     encoded_bytes = encoded.encode('ascii')
-    out_size = len(encoded_bytes)  # decoded output is always <= input length
+    out_size = len(encoded_bytes)
     out_buf = ctypes.create_string_buffer(out_size)
     out_len = ctypes.c_size_t(0)
     ret = _b64lib.b64_decode(encoded_bytes, out_buf, ctypes.c_size_t(out_size), ctypes.byref(out_len))
@@ -43,56 +39,41 @@ def decode_base64_urlsafe(encoded: str) -> str:
         return _b64std.urlsafe_b64decode(encoded + '==').decode('utf-8', errors='replace')
     return out_buf.raw[:out_len.value].decode('utf-8', errors='replace')
 
-SCOPES = [
-    'https://www.googleapis.com/auth/gmail.modify',
-    'https://www.googleapis.com/auth/calendar',
-    'https://www.googleapis.com/auth/drive.readonly',
-    'https://www.googleapis.com/auth/documents.readonly',
-    'https://www.googleapis.com/auth/meetings.space.readonly',
-]
-
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_TOKEN = os.path.join(_ROOT, 'token.json')
-_CREDS = os.path.join(_ROOT, 'credentials.json')
-
 
 def get_gmail_service():
-    creds = None
-    if os.path.exists(_TOKEN):
-        creds = Credentials.from_authorized_user_file(_TOKEN, SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(_CREDS, SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open(_TOKEN, 'w') as f:
-            f.write(creds.to_json())
-    return build('gmail', 'v1', credentials=creds)
+    return build('gmail', 'v1', credentials=get_credentials())
+
 
 def _sanitize_header(value, max_len=500):
     """Strip control characters and truncate email header values."""
-    import re
     return re.sub(r'[\x00-\x1f\x7f]', '', value)[:max_len]
 
 
-def get_recent_emails(service, max_results = 5):
-    msg_ids = service.users().messages().list(userId = 'me', maxResults = max_results, labelIds = ['INBOX']).execute()
-    messages = msg_ids.get('messages', [])
+def _get_header(headers, name, default=''):
+    """Extract a single header value by name (case-insensitive)."""
+    return next((h['value'] for h in headers if h['name'].lower() == name), default)
+
+
+def _extract_body(payload):
+    """Extract plain-text body from a Gmail message payload."""
+    if 'parts' in payload:
+        for part in payload['parts']:
+            if part['mimeType'] == 'text/plain' and 'data' in part.get('body', {}):
+                return decode_base64_urlsafe(part['body']['data'])
+    elif 'data' in payload.get('body', {}):
+        return decode_base64_urlsafe(payload['body']['data'])
+    return ''
+
+
+def get_recent_emails(service, max_results=5):
+    msg_ids = service.users().messages().list(userId='me', maxResults=max_results, labelIds=['INBOX']).execute()
     emails = []
-    for msg in messages:
+    for msg in msg_ids.get('messages', []):
         msg_data = service.users().messages().get(userId='me', id=msg['id'], format='full').execute()
         headers = msg_data['payload']['headers']
-        subject = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject'))
-        frm = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown'))
-        body = ''
-        if 'parts' in msg_data['payload']:
-            for part in msg_data['payload']['parts']:
-                if part['mimeType'] == 'text/plain' and 'data' in part.get('body', {}):
-                    body = decode_base64_urlsafe(part['body']['data'])
-                    break
-        elif 'data' in msg_data['payload'].get('body', {}):
-            body = decode_base64_urlsafe(msg_data['payload']['body']['data'])
+        subject = _sanitize_header(_get_header(headers, 'subject', 'No Subject'))
+        frm = _sanitize_header(_get_header(headers, 'from', 'Unknown'))
+        body = _extract_body(msg_data['payload'])
         if not body:
             log.warning(f"email_skipped | reason=body_empty | id={msg['id']}")
         else:
@@ -100,24 +81,20 @@ def get_recent_emails(service, max_results = 5):
         emails.append({'id': msg['id'], 'subject': subject, 'from': frm, 'body': body})
     return emails
 
+
 def search_emails(service, query, max_results=5):
-    """Search Gmail by query string (same syntax as Gmail search bar).
-    Returns a list of matching email dicts with id, subject, from, snippet.
-    """
+    """Search Gmail by query string (same syntax as Gmail search bar)."""
     try:
-        results = service.users().messages().list(
-            userId='me', q=query, maxResults=max_results
-        ).execute()
-        messages = results.get('messages', [])
+        results = service.users().messages().list(userId='me', q=query, maxResults=max_results).execute()
         emails = []
-        for msg in messages:
+        for msg in results.get('messages', []):
             msg_data = service.users().messages().get(
                 userId='me', id=msg['id'], format='metadata',
                 metadataHeaders=['Subject', 'From']
             ).execute()
             headers = msg_data.get('payload', {}).get('headers', [])
-            subject = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject'))
-            frm = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown'))
+            subject = _sanitize_header(_get_header(headers, 'subject', 'No Subject'))
+            frm = _sanitize_header(_get_header(headers, 'from', 'Unknown'))
             snippet = _sanitize_header(msg_data.get('snippet', ''), max_len=300)
             emails.append({'id': msg['id'], 'subject': subject, 'from': frm, 'snippet': snippet})
         log.info(f"email_search | query={query} | results={len(emails)}")
@@ -130,20 +107,11 @@ def search_emails(service, query, max_results=5):
 def read_email(service, email_id):
     """Fetch the full body of a single email by its ID."""
     try:
-        msg_data = service.users().messages().get(
-            userId='me', id=email_id, format='full'
-        ).execute()
+        msg_data = service.users().messages().get(userId='me', id=email_id, format='full').execute()
         headers = msg_data['payload']['headers']
-        subject = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject'))
-        frm = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown'))
-        body = ''
-        if 'parts' in msg_data['payload']:
-            for part in msg_data['payload']['parts']:
-                if part['mimeType'] == 'text/plain' and 'data' in part.get('body', {}):
-                    body = decode_base64_urlsafe(part['body']['data'])
-                    break
-        elif 'data' in msg_data['payload'].get('body', {}):
-            body = decode_base64_urlsafe(msg_data['payload']['body']['data'])
+        subject = _sanitize_header(_get_header(headers, 'subject', 'No Subject'))
+        frm = _sanitize_header(_get_header(headers, 'from', 'Unknown'))
+        body = _extract_body(msg_data['payload'])
         log.info(f"email_read | id={email_id} | from={frm} | subject={subject}")
         return {'id': email_id, 'subject': subject, 'from': frm, 'body': body}
     except Exception as e:
@@ -172,17 +140,15 @@ def send_reply(service, to, subject, body, draft_mode=True):
     message['subject'] = f"Re: {subject}"
     raw = _b64std.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
     if draft_mode:
-        service.users().drafts().create(userId = 'me', body = {'message': {'raw': raw}}).execute()
+        service.users().drafts().create(userId='me', body={'message': {'raw': raw}}).execute()
         log.info(f"draft_saved | to={to} | subject={subject}")
     else:
         print(f"Send email to {to}? (y/n)")
-        ans = input()
-        if ans.lower() == 'y':
+        if input().lower() == 'y':
             service.users().messages().send(userId='me', body={'raw': raw}).execute()
             log.info(f"email_sent | to={to} | subject={subject}")
         else:
             log.info(f"email_cancelled | to={to}")
-
 
 
 if __name__ == '__main__':
@@ -195,8 +161,3 @@ if __name__ == '__main__':
         print(f"Body preview: {email['body'][:200]}")
         print("---")
     send_reply(service, emails[0]['from'], emails[0]['subject'], 'Test reply body', draft_mode=True)
-
-
-
-
- 

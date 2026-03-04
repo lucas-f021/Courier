@@ -1,6 +1,7 @@
 import anthropic
 import openai
 import os
+import re
 import json
 import logging
 
@@ -299,45 +300,6 @@ tools_openai = [
 
 
 # --- Unified chat call ---
-_TOOL_KEYWORD_MAP = {
-    "search_drive": ["search drive", "find document", "find the document", "look up", "on drive", "check drive", "drive for", "find file", "find the file"],
-    "read_doc": ["read doc", "read the doc", "read this doc", "read document", "open doc", "docs.google.com/document"],
-    "draft_reply": ["draft a reply", "draft reply", "draft an email", "draft email", "write a reply", "reply to"],
-    "post_to_slack": ["post to slack", "send to slack", "slack message", "message slack", "tell slack"],
-    "search_emails": ["search email", "search emails", "search my email", "search inbox", "find email", "find emails", "find the email", "look for email", "email from", "email about", "emails from", "emails about"],
-    "delete_event": ["delete event", "delete the event", "remove event", "remove the event", "cancel event", "cancel the event", "cancel meeting", "cancel the meeting", "delete meeting", "delete the meeting", "remove meeting", "remove the meeting", "remove from calendar", "delete from calendar", "please delete", "delete it", "remove it", "cancel it", "delete the calender", "delete the calendar", "remove the calender", "remove the calendar"],
-    "update_event": ["update event", "update the event", "change event", "change the event", "move event", "move the event", "reschedule", "modify event", "modify the event", "edit event", "edit the event", "change the time", "move the meeting", "update meeting", "change meeting"],
-    "create_event": ["add event", "create event", "schedule a meeting", "schedule meeting", "add to calendar", "add to my calendar", "put on my calendar", "book a meeting", "set up a meeting", "new event"],
-    "check_availability": ["am i free at", "am i available", "is the slot free", "free at", "busy at", "available at", "open at", "check if i'm free", "check availability"],
-    "get_transcripts": ["transcript", "meeting notes", "what was discussed", "meeting summary", "what happened in the meeting", "recap the meeting"],
-    "check_calendar": ["calendar", "calender", "schedule", "meetings today", "what's on my", "my agenda", "upcoming meetings", "upcoming events", "any meetings", "am i free", "availability", "do i have"],
-}
-
-def _detect_tool(text):
-    """Detect which tool is needed from user text (Ollama only). Returns tool name or None."""
-    lower = text.lower()
-    for tool_name, keywords in _TOOL_KEYWORD_MAP.items():
-        if any(kw in lower for kw in keywords):
-            return tool_name
-    return None
-
-_system_prompt_local_with_tools = """You are a personal productivity agent. The user has asked you to use a tool. You MUST call the appropriate tool.
-
-If the user asks to search Drive, call search_drive with the query.
-If the user asks to read a document, call read_doc with the URL.
-If the user asks to draft a reply or email, call draft_reply with to, subject, and body.
-If the user asks to post to Slack, call post_to_slack with the message.
-If the user asks about their calendar, schedule, or meetings, call check_calendar.
-If the user asks about meeting transcripts or what was discussed, call get_transcripts.
-If the user asks to add, schedule, or create an event or meeting, call create_event with summary, start_time (ISO 8601), and end_time (ISO 8601). Use today's date if not specified.
-If the user asks to delete, remove, or cancel an event or meeting, call delete_event with the event_id. If you don't have the event_id, call check_calendar first to find it.
-If the user asks to update, change, reschedule, or modify an event, call update_event with the event_id and the fields to change. If you don't have the event_id, call check_calendar first.
-If the user asks to search for emails, call search_emails with a Gmail search query (e.g. 'from:john', 'subject:report', 'budget approval').
-If the user asks about availability for a specific time, call check_availability with time_min and time_max in ISO 8601 format.
-
-Do NOT just describe what you would do — actually call the tool.
-After getting the tool result, summarize it naturally for the user. Present the data clearly."""
-
 def _chat(messages, system=None, tools=None, tool_choice=None):
     """Call the LLM and return a normalized response dict:
     {
@@ -551,41 +513,43 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
 
 def _validate_email(addr):
     """Basic email format check. Returns True if plausible."""
-    import re
     return bool(re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', addr.strip()))
 
 
 def _validate_iso8601(ts):
     """Check that ts is a parseable ISO 8601 datetime string."""
     from datetime import datetime
-    for fmt in ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S%z'):
-        try:
-            datetime.strptime(ts[:19], '%Y-%m-%dT%H:%M:%S')
-            return True
-        except ValueError:
-            pass
-    return False
+    try:
+        datetime.strptime(ts[:19], '%Y-%m-%dT%H:%M:%S')
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_email_inputs(inputs):
+    """Validate common email fields. Returns error string or None."""
+    if not _validate_email(inputs.get('to', '')):
+        return f"Invalid recipient email address: {inputs.get('to', '')}"
+    if len(inputs.get('subject', '')) > 500:
+        return "Subject too long (max 500 characters)"
+    if len(inputs.get('body', '')) > 50000:
+        return "Body too long (max 50000 characters)"
+    return None
 
 
 def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None, docs_service=None, notifier=None, reminder_callback=None):
     from integrations.gmail import send_reply
     if name == "draft_reply":
-        if not _validate_email(inputs.get('to', '')):
-            return f"Invalid recipient email address: {inputs.get('to', '')}"
-        if len(inputs.get('subject', '')) > 500:
-            return "Subject too long (max 500 characters)"
-        if len(inputs.get('body', '')) > 50000:
-            return "Body too long (max 50000 characters)"
+        err = _validate_email_inputs(inputs)
+        if err:
+            return err
         send_reply(gmail_service, inputs['to'], inputs['subject'], inputs['body'], draft_mode=True)
         return f"Draft saved for {inputs['to']}"
 
     if name == "send_email":
-        if not _validate_email(inputs.get('to', '')):
-            return f"Invalid recipient email address: {inputs.get('to', '')}"
-        if len(inputs.get('subject', '')) > 500:
-            return "Subject too long (max 500 characters)"
-        if len(inputs.get('body', '')) > 50000:
-            return "Body too long (max 50000 characters)"
+        err = _validate_email_inputs(inputs)
+        if err:
+            return err
         from integrations.gmail import send_email
         success = send_email(gmail_service or _gmail_service, inputs['to'], inputs['subject'], inputs['body'])
         if success:
@@ -614,7 +578,6 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
     if name == "read_doc":
         if docs_service is None:
             return "Docs not available"
-        import re
         from integrations.drive_client import read_doc_content
         url = inputs['doc_url']
         if not re.match(r'https://docs\.google\.com/', url):
@@ -787,28 +750,11 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
         else:
             messages.append({"role": "user", "content": f"[SLACK MESSAGE]\n{msg.get('text', '')}"})
     messages.append({"role": "user", "content": f"[SLACK MESSAGE]\n{text}"})
-    # --- Guardrails OFF (uncomment to re-enable) ---
-    # forced_choice = None
-    # if _backend == "ollama":
-    #     detected = _detect_tool(text)
-    #     if detected:
-    #         use_tools = tools_openai
-    #         system_prompt = _system_prompt_local_with_tools
-    #         forced_choice = {"type": "function", "function": {"name": detected}}
-    #     else:
-    #         use_tools = []
-    #         system_prompt = _get_system_prompt()
-    # else:
-    #     use_tools = None
-    #     system_prompt = _get_system_prompt()
-    # --- Guardrails OFF — using native tool calling ---
     system_prompt = _get_system_prompt()
-    use_tools = None  # None = all tools for both backends
     max_tool_rounds = 5
     tool_round = 0
     while True:
-        resp = _chat(messages, system=system_prompt, tools=use_tools)
-        # forced_choice = None  # uncomment if re-enabling guardrails
+        resp = _chat(messages, system=system_prompt)
         if resp["stop_reason"] == "end_turn":
             from integrations.slack_client import reply_in_thread, post_message
             for text_block in resp["text_blocks"]:
@@ -845,44 +791,20 @@ def run_slack_agent(text, channel, thread_ts, is_dm, slack_client):
                     result = f"Unknown tool: {tc['name']}"
                 tool_results.append({"id": tc["id"], "result": result})
             _append_assistant_and_results(messages, resp["raw"], resp["tool_calls"], tool_results)
-            # if _backend == "ollama":  # uncomment to strip tools after first call
-            #     use_tools = []
         else:
             break
 
 
-# --- run_web_agent ---
 def run_web_agent(text, conversation_history):
     log.info(f"web_agent_start | msg_len={len(text)}")
-    # --- Guardrails OFF (uncomment to re-enable) ---
-    # detected = _detect_tool(text) if _backend == "ollama" else None
-    # if detected:
-    #     conversation_history.append({"role": "user", "content": text})
-    # else:
-    #     conversation_history.append({"role": "user", "content": f"[WEB MESSAGE]\n{text}"})
-    # forced_choice = None
-    # if _backend == "ollama":
-    #     if detected:
-    #         use_tools = tools_openai
-    #         system_prompt = _system_prompt_local_with_tools
-    #         forced_choice = {"type": "function", "function": {"name": detected}}
-    #     else:
-    #         use_tools = []
-    #         system_prompt = _get_system_prompt()
-    # else:
-    #     use_tools = None
-    #     system_prompt = _get_system_prompt()
-    # --- Guardrails OFF — using native tool calling ---
     conversation_history.append({"role": "user", "content": f"[WEB MESSAGE]\n{text}"})
     messages = list(conversation_history)
     system_prompt = _get_system_prompt()
-    use_tools = None  # None = all tools for both backends
     reply = ""
     max_tool_rounds = 5
     tool_round = 0
     while True:
-        resp = _chat(messages, system=system_prompt, tools=use_tools)
-        # forced_choice = None  # uncomment if re-enabling guardrails
+        resp = _chat(messages, system=system_prompt)
         if resp["stop_reason"] == "end_turn":
             for text_block in resp["text_blocks"]:
                 reply += text_block
@@ -907,8 +829,6 @@ def run_web_agent(text, conversation_history):
                     result = f"Unknown tool: {tc['name']}"
                 tool_results.append({"id": tc["id"], "result": result})
             _append_assistant_and_results(messages, resp["raw"], resp["tool_calls"], tool_results)
-            # if _backend == "ollama":  # uncomment to strip tools after first call
-            #     use_tools = []
         else:
             break
     return reply

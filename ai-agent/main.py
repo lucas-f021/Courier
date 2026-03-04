@@ -104,11 +104,9 @@ def prune_processed(keep_days=30):
     from datetime import datetime, timezone, timedelta
     cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=keep_days)).isoformat()
     con = sqlite3.connect(DB_PATH)
-    con.isolation_level = None
     con.execute("DELETE FROM processed WHERE processed_at < ? OR processed_at IS NULL", (cutoff,))
     con.commit()
     con.execute("VACUUM")
-    con.commit()
     con.close()
     log.info(f"processed_pruned | keep_days={keep_days}")
 

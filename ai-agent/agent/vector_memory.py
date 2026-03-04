@@ -48,7 +48,6 @@ def prune_memory(keep_days=90, important_keep_days=365):
     important_cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=important_keep_days)).isoformat()
     try:
         con = sqlite3.connect(_DB_PATH)
-        con.isolation_level = None
         con.execute(
             "DELETE FROM email_memory WHERE important = '0' AND timestamp < ?",
             (cutoff,)
@@ -59,7 +58,6 @@ def prune_memory(keep_days=90, important_keep_days=365):
         )
         con.commit()
         con.execute("VACUUM")
-        con.commit()
         con.close()
         log.info(f"memory_pruned | keep_days={keep_days} | important_keep_days={important_keep_days}")
     except Exception as e:
