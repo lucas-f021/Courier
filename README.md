@@ -1,16 +1,19 @@
 # Courier
 
-AI-powered productivity agent that connects your Gmail, Google Workspace, and Slack into a single conversational interface. Ask it to check your email, manage your calendar, search your Drive, and more — through Slack or a local web UI.
+Your personal AI productivity agent — runs 100% locally, completely free. No API subscriptions, no per-token costs, no data leaving your machine. Connects Gmail, Google Calendar, Drive, and Slack into a single conversational interface powered by your own hardware.
+
+> **Run it free forever with Ollama.** Cloud backends (OpenAI, Anthropic) are supported as optional upgrades if you prefer them.
 
 ## Features
 
+- **100% Local by Default** — runs on Ollama with no API costs
 - **Gmail** — search, read, send emails, draft replies, poll for new emails automatically
 - **Google Calendar** — check availability, create/update/delete events
 - **Google Drive & Docs** — search files, read document contents
 - **Google Meet** — pull meeting transcripts for follow-up context
 - **Slack** — two-way conversations via @mentions and DMs (Socket Mode)
 - **Web UI** — browser-based chat interface on `localhost:5000`
-- **Triple AI Backend** — use Anthropic Claude, OpenAI GPT, or Ollama (local, free)
+- **Flexible AI Backend** — Ollama (free/local), OpenAI GPT, or Anthropic Claude
 - **Semantic Memory** — ChromaDB vector search for context-aware responses
 - **14 Built-in Tools** — the agent calls tools autonomously based on your request
 - **C Base64 Decoder** — custom C library for decoding email bodies via ctypes
@@ -22,6 +25,7 @@ AI-powered productivity agent that connects your Gmail, Google Workspace, and Sl
 - Python 3.10+
 - GCC (for compiling the C decoder)
 - A Google account
+- [Ollama](https://ollama.com) (for free local inference)
 
 ### 1. Clone and install
 
@@ -45,7 +49,7 @@ gcc -O2 -shared -fPIC -o b64decode.so base64.c
 
 ### 3. Google Cloud setup (required)
 
-This is the most involved step. You need a Google Cloud project with OAuth credentials.
+You need a Google Cloud project with OAuth credentials to access Gmail, Calendar, and Drive.
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project (or select an existing one)
@@ -69,9 +73,9 @@ On first run, a browser window will open for OAuth authorization. This generates
 
 > **Note:** If you enable additional Google APIs later, delete `token.json` and re-run to reauthorize with the new scopes.
 
-### 4. Choose an AI backend (pick one)
+### 4. Choose an AI backend
 
-**Option A: Ollama (free, runs locally)**
+**Option A: Ollama — free, local, recommended**
 
 Install [Ollama](https://ollama.com), then pull a model:
 ```bash
@@ -83,7 +87,9 @@ In `main.py`, set:
 USE_LOCAL_MODEL = True
 ```
 
-**Option B: OpenAI GPT (cloud API)**
+No API key needed. Your data stays on your machine.
+
+**Option B: OpenAI GPT (cloud, optional)**
 
 Get an API key from [OpenAI](https://platform.openai.com/) and add it to your `.env`.
 
@@ -92,15 +98,11 @@ In `main.py`, set:
 USE_OPENAI_MODEL = True
 ```
 
-**Option C: Anthropic Claude (cloud API)**
+**Option C: Anthropic Claude (cloud, optional)**
 
 Get an API key from [Anthropic](https://console.anthropic.com/) and add it to your `.env`.
 
-In `main.py`, set:
-```python
-USE_LOCAL_MODEL = False
-USE_OPENAI_MODEL = False
-```
+In `main.py`, both flags default to `False` — Claude is the default when neither local option is enabled.
 
 ### 5. Configure environment
 
@@ -184,7 +186,7 @@ ai-agent/
 ├── requirements.txt
 ├── .env.example
 ├── agent/
-│   ├── ai_agent.py         # AI agent loop, 14 tools, triple backend
+│   ├── ai_agent.py         # AI agent loop, 14 tools, flexible backend
 │   └── vector_memory.py    # ChromaDB semantic memory
 ├── integrations/
 │   ├── gmail.py            # Gmail API + C decoder bridge
@@ -216,6 +218,6 @@ docker run -it \
 1. **Poll** — checks Gmail every 5 minutes for new emails
 2. **Deduplicate** — skips already-processed emails (tracked in SQLite)
 3. **Memory** — retrieves semantically similar past context from ChromaDB
-4. **AI** — sends the email + context to Claude or Ollama with tool definitions
+4. **AI** — sends the email + context to your chosen model with tool definitions
 5. **Act** — the model calls tools (draft reply, check calendar, post to Slack, etc.)
 6. **Listen** — simultaneously listens for Slack messages or web chat input
