@@ -2,9 +2,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- User config ---
-USE_WEB_UI = True        # Set to True to use browser chat instead of Slack
-USE_LOCAL_MODEL = False  # Set to True to use Ollama instead of Anthropic API
-USE_OPENAI_MODEL = False # Set to True to use OpenAI (GPT) instead of Anthropic API
+USE_WEB_UI = True             # Set to True to use browser chat instead of Slack
+USE_LOCAL_MODEL = True        # Set to True to use Ollama (free, local)
+USE_OPENAI_MODEL = False      # Set to True to use OpenAI GPT (requires OPENAI_API_KEY)
+USE_ANTHROPIC_MODEL = False   # Set to True to use Anthropic Claude (requires ANTHROPIC_API_KEY)
 # -------------------
 
 import os
@@ -47,9 +48,17 @@ def _kill_port(port=5000):
                 ["lsof", "-ti", f":{port}"], capture_output=True, text=True
             )
             for pid_str in result.stdout.strip().splitlines():
-                pid = int(pid_str)
-                if pid != my_pid:
-                    os.kill(pid, 9)
+                if not pid_str.strip().isdigit():
+                    continue
+                pid = int(pid_str.strip())
+                if pid != my_pid and pid > 1:
+                    import signal
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                        time.sleep(1)
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass  # Already exited after SIGTERM
                     logging.getLogger(__name__).info(f"killed_ghost | port={port} | pid={pid}")
     except Exception as e:
         logging.getLogger(__name__).warning(f"kill_port_failed | error={str(e)}")
@@ -108,12 +117,14 @@ def main():
     POLL_INTERVAL_SECONDS = 300
 
     log.info("agent_startup")
-    if USE_LOCAL_MODEL and USE_OPENAI_MODEL:
-        raise ValueError("Only one of USE_LOCAL_MODEL or USE_OPENAI_MODEL can be True at a time.")
+    if sum([USE_LOCAL_MODEL, USE_OPENAI_MODEL, USE_ANTHROPIC_MODEL]) > 1:
+        raise ValueError("Only one of USE_LOCAL_MODEL, USE_OPENAI_MODEL, or USE_ANTHROPIC_MODEL can be True at a time.")
     if USE_LOCAL_MODEL:
         set_backend("ollama")
     elif USE_OPENAI_MODEL:
         set_backend("openai")
+    elif USE_ANTHROPIC_MODEL:
+        set_backend("anthropic")
     _init_db()
     prune_memory()
     prune_processed()

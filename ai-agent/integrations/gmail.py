@@ -26,16 +26,21 @@ _b64lib = ctypes.CDLL(_lib_path)
 _b64lib.b64_decode.argtypes = [
     ctypes.c_char_p,
     ctypes.c_char_p,
+    ctypes.c_size_t,
     ctypes.POINTER(ctypes.c_size_t)
 ]
 
-_b64lib.b64_decode.restype = None
+_b64lib.b64_decode.restype = ctypes.c_int
 
 def decode_base64_urlsafe(encoded: str) -> str:
     encoded_bytes = encoded.encode('ascii')
-    out_buf = ctypes.create_string_buffer(len(encoded_bytes))
+    out_size = len(encoded_bytes)  # decoded output is always <= input length
+    out_buf = ctypes.create_string_buffer(out_size)
     out_len = ctypes.c_size_t(0)
-    _b64lib.b64_decode(encoded_bytes, out_buf, ctypes.byref(out_len))
+    ret = _b64lib.b64_decode(encoded_bytes, out_buf, ctypes.c_size_t(out_size), ctypes.byref(out_len))
+    if ret != 0:
+        log.warning("b64_decode_failed | falling back to stdlib")
+        return _b64std.urlsafe_b64decode(encoded + '==').decode('utf-8', errors='replace')
     return out_buf.raw[:out_len.value].decode('utf-8', errors='replace')
 
 SCOPES = [
@@ -65,6 +70,12 @@ def get_gmail_service():
             f.write(creds.to_json())
     return build('gmail', 'v1', credentials=creds)
 
+def _sanitize_header(value, max_len=500):
+    """Strip control characters and truncate email header values."""
+    import re
+    return re.sub(r'[\x00-\x1f\x7f]', '', value)[:max_len]
+
+
 def get_recent_emails(service, max_results = 5):
     msg_ids = service.users().messages().list(userId = 'me', maxResults = max_results, labelIds = ['INBOX']).execute()
     messages = msg_ids.get('messages', [])
@@ -72,8 +83,8 @@ def get_recent_emails(service, max_results = 5):
     for msg in messages:
         msg_data = service.users().messages().get(userId='me', id=msg['id'], format='full').execute()
         headers = msg_data['payload']['headers']
-        subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject')
-        frm = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown')
+        subject = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject'))
+        frm = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown'))
         body = ''
         if 'parts' in msg_data['payload']:
             for part in msg_data['payload']['parts']:
@@ -105,9 +116,9 @@ def search_emails(service, query, max_results=5):
                 metadataHeaders=['Subject', 'From']
             ).execute()
             headers = msg_data.get('payload', {}).get('headers', [])
-            subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject')
-            frm = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown')
-            snippet = msg_data.get('snippet', '')
+            subject = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject'))
+            frm = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown'))
+            snippet = _sanitize_header(msg_data.get('snippet', ''), max_len=300)
             emails.append({'id': msg['id'], 'subject': subject, 'from': frm, 'snippet': snippet})
         log.info(f"email_search | query={query} | results={len(emails)}")
         return emails
@@ -123,8 +134,8 @@ def read_email(service, email_id):
             userId='me', id=email_id, format='full'
         ).execute()
         headers = msg_data['payload']['headers']
-        subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject')
-        frm = next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown')
+        subject = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'subject'), 'No Subject'))
+        frm = _sanitize_header(next((h['value'] for h in headers if h['name'].lower() == 'from'), 'Unknown'))
         body = ''
         if 'parts' in msg_data['payload']:
             for part in msg_data['payload']['parts']:

@@ -69,7 +69,9 @@ def read_doc_content(service, doc_id):
 
 def search_drive_files(service, query, max_results=5):
     try:
-        safe_q = query.replace("'", "\\'")
+        import re
+        # Strip characters that have meaning in Drive query language; keep alphanumeric, spaces, and common punctuation
+        safe_q = re.sub(r"['\"\\\n\r]", '', query)[:200]
         result = service.files().list(
             q=f"name contains '{safe_q}' and trashed = false",
             pageSize=max_results,

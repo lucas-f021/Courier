@@ -8,8 +8,17 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 _conversation_history = []
+_conversation_history_lock = threading.Lock()
 _inbox = []
 _inbox_lock = threading.Lock()
+
+
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
 
 def push_to_web(message):
     with _inbox_lock:
@@ -32,25 +41,28 @@ def inbox():
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     text = data.get('message', '').strip()
     if not text:
         return jsonify({'reply': ''})
+    if len(text) > 4000:
+        return jsonify({'reply': 'Message too long (max 4000 characters).'})
     log.info(f"web_request | msg_len={len(text)}")
     run_web_agent = _get_run_web_agent()
     try:
         reply = run_web_agent(text, _conversation_history)
     except Exception as e:
         log.error(f"web_agent_error | error={str(e)}")
-        # Remove the failed user message so it doesn't poison future requests
-        if _conversation_history and _conversation_history[-1].get("role") == "user":
-            _conversation_history.pop()
-        return jsonify({'reply': f'Agent error: {str(e)}'})
+        with _conversation_history_lock:
+            if _conversation_history and _conversation_history[-1].get("role") == "user":
+                _conversation_history.pop()
+        return jsonify({'reply': 'An error occurred. Please try again.'})
     return jsonify({'reply': reply})
 
 @app.route('/reset', methods=['POST'])
 def reset():
-    _conversation_history.clear()
+    with _conversation_history_lock:
+        _conversation_history.clear()
     log.info("web_conversation_reset")
     return jsonify({'status': 'ok'})
 
@@ -159,4 +171,4 @@ _HTML = """<!DOCTYPE html>
 
 def start_web_server(port=5000):
     log.info(f"web_server_start | port={port}")
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)

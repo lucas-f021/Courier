@@ -363,6 +363,7 @@ def _chat(messages, system=None, tools=None, tool_choice=None):
             create_kwargs["tools"] = oai_tools
         if tool_choice:
             create_kwargs["tool_choice"] = tool_choice
+        create_kwargs["timeout"] = 60
         log.info(f"ollama_request | tools={len(oai_tools) if oai_tools else 0} | tool_choice={tool_choice} | msg_count={len(oai_messages)}")
         response = client.chat.completions.create(**create_kwargs)
         choice = response.choices[0]
@@ -391,7 +392,8 @@ def _chat(messages, system=None, tools=None, tool_choice=None):
             max_tokens=1024,
             system=system or _get_system_prompt(),
             tools=anth_tools,
-            messages=messages
+            messages=messages,
+            timeout=60
         )
         text_blocks = [b.text for b in response.content if hasattr(b, 'text') and b.text]
         tool_calls = [
@@ -547,13 +549,43 @@ def run_agent(email, gmail_service, slack_client, slack_channel, calendar_servic
             break
 
 
+def _validate_email(addr):
+    """Basic email format check. Returns True if plausible."""
+    import re
+    return bool(re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', addr.strip()))
+
+
+def _validate_iso8601(ts):
+    """Check that ts is a parseable ISO 8601 datetime string."""
+    from datetime import datetime
+    for fmt in ('%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S%z'):
+        try:
+            datetime.strptime(ts[:19], '%Y-%m-%dT%H:%M:%S')
+            return True
+        except ValueError:
+            pass
+    return False
+
+
 def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channel, drive_service=None, docs_service=None, notifier=None, reminder_callback=None):
     from integrations.gmail import send_reply
     if name == "draft_reply":
+        if not _validate_email(inputs.get('to', '')):
+            return f"Invalid recipient email address: {inputs.get('to', '')}"
+        if len(inputs.get('subject', '')) > 500:
+            return "Subject too long (max 500 characters)"
+        if len(inputs.get('body', '')) > 50000:
+            return "Body too long (max 50000 characters)"
         send_reply(gmail_service, inputs['to'], inputs['subject'], inputs['body'], draft_mode=True)
         return f"Draft saved for {inputs['to']}"
 
     if name == "send_email":
+        if not _validate_email(inputs.get('to', '')):
+            return f"Invalid recipient email address: {inputs.get('to', '')}"
+        if len(inputs.get('subject', '')) > 500:
+            return "Subject too long (max 500 characters)"
+        if len(inputs.get('body', '')) > 50000:
+            return "Body too long (max 50000 characters)"
         from integrations.gmail import send_email
         success = send_email(gmail_service or _gmail_service, inputs['to'], inputs['subject'], inputs['body'])
         if success:
@@ -585,7 +617,9 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
         import re
         from integrations.drive_client import read_doc_content
         url = inputs['doc_url']
-        match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+        if not re.match(r'https://docs\.google\.com/', url):
+            return "Invalid document URL: must be a docs.google.com link"
+        match = re.search(r'/d/([a-zA-Z0-9_-]{10,60})(?:[/?#]|$)', url)
         if not match:
             return "Could not extract document ID from URL"
         doc_id = match.group(1)
@@ -626,6 +660,10 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
     if name == "create_event":
         if _calendar_service is None:
             return "Calendar not available"
+        if not _validate_iso8601(inputs.get('start_time', '')):
+            return "Invalid start_time: must be ISO 8601 format (e.g. 2026-03-01T09:00:00)"
+        if not _validate_iso8601(inputs.get('end_time', '')):
+            return "Invalid end_time: must be ISO 8601 format (e.g. 2026-03-01T10:00:00)"
         from integrations.calendar_client import create_event
         result = create_event(
             _calendar_service,
@@ -653,6 +691,10 @@ def _execute_tool(name, inputs, email, gmail_service, slack_client, slack_channe
     if name == "update_event":
         if _calendar_service is None:
             return "Calendar not available"
+        if inputs.get('start_time') and not _validate_iso8601(inputs['start_time']):
+            return "Invalid start_time: must be ISO 8601 format"
+        if inputs.get('end_time') and not _validate_iso8601(inputs['end_time']):
+            return "Invalid end_time: must be ISO 8601 format"
         from integrations.calendar_client import update_event
         result = update_event(
             _calendar_service,
